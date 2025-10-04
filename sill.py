@@ -958,15 +958,14 @@ def crear_vehiculos():
     with tab1:
         st.subheader("Registrar Nuevo Vehículo")
         
-        # Generar nuevo ID
-        df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
-        max_id = df_vehiculos['id_vehiculo'].max() if not df_vehiculos.empty and 'id_vehiculo' in df_vehiculos.columns else 0
-        nuevo_id = int(max_id) + 1
-        
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("ID Vehículo", nuevo_id)
+            # ID manual
+            df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+            max_id = df_vehiculos['id_vehiculo'].max() if not df_vehiculos.empty and 'id_vehiculo' in df_vehiculos.columns else 0
+            id_vehiculo = st.number_input("ID Vehículo", min_value=int(max_id)+1, value=int(max_id)+1)
+            
             cliente_seleccionado = st.selectbox(
                 "Cliente",
                 options=df_clientes['nit'].values,
@@ -999,9 +998,11 @@ def crear_vehiculos():
                 
                 if placa_vehiculo in df_vehiculos['placa_vehiculo'].values:
                     st.error("Esta placa ya está registrada")
+                elif id_vehiculo in df_vehiculos['id_vehiculo'].values:
+                    st.error("Este ID de vehículo ya existe")
                 else:
                     nuevo_vehiculo = pd.DataFrame([{
-                        'id_vehiculo': nuevo_id,
+                        'id_vehiculo': id_vehiculo,  # Aquí usa la variable id_vehiculo del input
                         'nit_cliente': cliente_seleccionado,
                         'marca': marca,
                         'linea': linea,
@@ -1018,8 +1019,8 @@ def crear_vehiculos():
                     df_vehiculos.to_csv(VEHICULOS_FILE, index=False, encoding='utf-8')
                     st.success("✅ Dato creado con éxito")
                     st.balloons()
-                    st.rerun()
-    
+                    st.rerun()                
+      
     with tab2:
         df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
         
