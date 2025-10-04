@@ -1694,7 +1694,6 @@ def reportes():
                 )
 
 def gestion_usuarios():
-def gestion_usuarios():
     """Función para gestionar usuarios (solo nivel 1)"""
     
     st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
