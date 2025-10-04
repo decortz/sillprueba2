@@ -1369,7 +1369,6 @@ def registrar_servicios():
         st.dataframe(servicios_recientes[columnas_mostrar], use_container_width=True)
 
 def desmontaje_llantas():
-def desmontaje_llantas():
     """Función para desmontar llantas y cambiar disponibilidad"""
     
     st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
