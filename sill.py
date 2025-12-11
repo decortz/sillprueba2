@@ -331,32 +331,37 @@ def actualizar_costos_km_llanta(id_llanta):
 def tiene_acceso_cliente(nit_cliente):
     """Verifica si el usuario tiene acceso al cliente especificado"""
     nivel = st.session_state.get('nivel', 999)
-    
-    if nivel in [1, 2, 3]:
+
+    # Solo nivel 1 (Admin) tiene acceso a todos los clientes
+    if nivel == 1:
         return True
-    
-    if nivel == 4:
+
+    # Niveles 2, 3 y 4 solo acceden a clientes asignados
+    if nivel in [2, 3, 4]:
         clientes_asignados = st.session_state.get('clientes_asignados', '')
         if clientes_asignados:
             lista_clientes = [c.strip() for c in clientes_asignados.split(',')]
-            return nit_cliente in lista_clientes
+            return str(nit_cliente) in lista_clientes
         return False
-    
+
     return False
 
 def obtener_clientes_accesibles():
     """Retorna lista de NITs de clientes a los que el usuario tiene acceso"""
     nivel = st.session_state.get('nivel', 999)
-    
-    if nivel in [1, 2, 3]:
+
+    # Solo nivel 1 (Admin) ve todos los clientes
+    if nivel == 1:
         df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
         return df_clientes['nit'].tolist() if not df_clientes.empty else []
-    
-    if nivel == 4:
+
+    # Niveles 2, 3 y 4 solo ven clientes asignados
+    if nivel in [2, 3, 4]:
         clientes_asignados = st.session_state.get('clientes_asignados', '')
         if clientes_asignados:
             return [c.strip() for c in clientes_asignados.split(',')]
-    
+        return []
+
     return []
 
 def generar_id_servicio(nit_cliente, frente):
@@ -432,11 +437,11 @@ def verificar_permiso(nivel_requerido):
 # ============= FUNCIÓN: SUBIR DATOS CSV =============
 def subir_datos_csv():
     """Función para cargar datos desde archivos CSV usando append"""
-    
+
     st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
     st.header("📤 Subir Datos desde CSV")
-    
-    if not verificar_permiso(2):
+
+    if not verificar_permiso(1):  # Solo Administrador puede subir CSV
         return
     
     st.subheader("Selecciona qué datos deseas cargar")
