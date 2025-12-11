@@ -1767,8 +1767,9 @@ def gestion_usuarios():
                 nivel = row.get('nivel', 0)
                 st.write(f"**Nivel:** {nivel} - {'Administrador' if nivel==1 else 'Supervisor' if nivel==2 else 'Operario' if nivel==3 else 'Admin Cliente'}")
                 
-                if nivel == 4 and row.get('clientes_asignados'):
-                    clientes_nits = row.get('clientes_asignados', '').split(',')
+                clientes_asignados = row.get('clientes_asignados', '')
+                if nivel == 4 and clientes_asignados and pd.notna(clientes_asignados):
+                    clientes_nits = str(clientes_asignados).split(',')
                     nombres_clientes = []
                     for nit in clientes_nits:
                         if nit and nit in df_clientes['nit'].values:
