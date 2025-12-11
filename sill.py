@@ -1730,7 +1730,7 @@ def gestion_usuarios():
                     options=df_clientes['nit'].values,
                     format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}"
                 )
-                clientes_seleccionados = ','.join(clientes_opciones)
+                clientes_seleccionados = ','.join([str(c) for c in clientes_opciones])
         
         if st.button("💾 Crear Usuario", type="primary"):
             if not nuevo_usuario or not nueva_password or not nuevo_nombre:
