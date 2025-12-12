@@ -162,7 +162,7 @@ def leer_hoja(nombre_hoja):
         df = conn.read(
             spreadsheet=SPREADSHEET_URL,
             worksheet=nombre_hoja,
-            ttl=5
+            ttl=300
         )
         if df is None or df.empty:
             return pd.DataFrame()
@@ -182,8 +182,6 @@ def escribir_hoja(nombre_hoja, df):
             worksheet=nombre_hoja,
             data=df
         )
-        # Limpiar cache para que la próxima lectura sea fresca
-        st.cache_resource.clear()
         return True
     except Exception as e:
         st.error(f"Error escribiendo en {nombre_hoja}: {str(e)}")
@@ -699,15 +697,15 @@ def ver_llantas_disponibles():
     clientes_acceso = obtener_clientes_accesibles()
     df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
     
-    if df_llantas.empty:
+    if df_llantas.empty or 'disponibilidad' not in df_llantas.columns:
         st.info("No tienes llantas accesibles")
         return
-    
+
     tab1, tab2, tab3 = st.tabs(["📋 Ver Todas", "✅ Aprobar Reencauches", "💰 Análisis de Costos"])
-    
+
     with tab1:
         st.subheader("Inventario Completo de Llantas")
-        
+
         col1, col2, col3 = st.columns(3)
         with col1:
             opciones_disp = list(df_llantas['disponibilidad'].unique())
@@ -995,17 +993,15 @@ def crear_vehiculos():
         st.subheader("Registrar Nuevo Vehículo")
         
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
-            # ID manual
-            df_vehiculos = leer_hoja(SHEET_VEHICULOS)
-            max_id = df_vehiculos['id_vehiculo'].max() if not df_vehiculos.empty and 'id_vehiculo' in df_vehiculos.columns else 0
-            id_vehiculo = st.number_input("ID Vehículo", min_value=int(max_id)+1, value=int(max_id)+1)
-            
+            # ID manual - sin restricciones
+            id_vehiculo = st.number_input("ID Vehículo", min_value=1, value=1)
+
             cliente_seleccionado = st.selectbox(
                 "Cliente",
-                options=df_clientes['nit'].values,
-                format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}"
+                options=df_clientes['nit'].values if not df_clientes.empty and 'nit' in df_clientes.columns else [],
+                format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}" if not df_clientes.empty else str(x)
             )
             marca = st.text_input("Marca (ej: Freightliner)")
         
@@ -1209,7 +1205,12 @@ def montaje_llantas():
     if df_llantas.empty or df_vehiculos.empty:
         st.warning("⚠️ Debes tener llantas y vehículos registrados")
         return
-    
+
+    # Verificar que el DataFrame tiene las columnas necesarias
+    if 'disponibilidad' not in df_llantas.columns or 'estado_reencauche' not in df_llantas.columns:
+        st.warning("⚠️ No se pueden cargar los datos de llantas correctamente")
+        return
+
     llantas_disponibles = df_llantas[
         (df_llantas['disponibilidad'].isin(['llanta_nueva', 'recambio'])) |
         ((df_llantas['disponibilidad'] == 'reencauche') & (df_llantas['estado_reencauche'] == 'aprobado'))
@@ -1275,12 +1276,17 @@ def registrar_servicios():
     
     df_llantas = leer_hoja(SHEET_LLANTAS)
     df_vehiculos = leer_hoja(SHEET_VEHICULOS)
-    
+
     clientes_acceso = obtener_clientes_accesibles()
     df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
-    
+
+    # Verificar que el DataFrame tiene la columna necesaria
+    if df_llantas.empty or 'disponibilidad' not in df_llantas.columns:
+        st.warning("⚠️ No hay llantas registradas o no se pueden cargar los datos")
+        return
+
     llantas_en_piso = df_llantas[df_llantas['disponibilidad'] == 'al_piso']
-    
+
     if llantas_en_piso.empty:
         st.warning("⚠️ No hay llantas montadas para registrar servicios")
         return
@@ -1417,12 +1423,17 @@ def desmontaje_llantas():
         return
     
     df_llantas = leer_hoja(SHEET_LLANTAS)
-    
+
     clientes_acceso = obtener_clientes_accesibles()
     df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
-    
+
+    # Verificar que el DataFrame tiene la columna necesaria
+    if df_llantas.empty or 'disponibilidad' not in df_llantas.columns:
+        st.warning("⚠️ No hay llantas registradas o no se pueden cargar los datos")
+        return
+
     llantas_montadas = df_llantas[df_llantas['disponibilidad'] == 'al_piso']
-    
+
     if llantas_montadas.empty:
         st.warning("⚠️ No hay llantas montadas para desmontar")
         return
@@ -1648,12 +1659,12 @@ def reportes():
         df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
         df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
         
-        if not df_llantas.empty:
+        if not df_llantas.empty and 'disponibilidad' in df_llantas.columns:
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 st.metric("Total Llantas", len(df_llantas))
-            
+
             with col2:
                 en_uso = len(df_llantas[df_llantas['disponibilidad'] == 'al_piso'])
                 st.metric("Llantas en Uso", en_uso)
