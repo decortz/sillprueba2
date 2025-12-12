@@ -189,6 +189,12 @@ def escribir_hoja(nombre_hoja, df):
         st.error(f"Error escribiendo en {nombre_hoja}: {str(e)}")
         return False
 
+def filtrar_por_clientes(df, columna_nit, clientes_acceso):
+    """Filtra un DataFrame por clientes accesibles de forma segura"""
+    if df.empty or columna_nit not in df.columns:
+        return pd.DataFrame()
+    return df[df[columna_nit].isin(clientes_acceso)]
+
 # ============= FUNCIONES DE INICIALIZACIÓN =============
 def inicializar_datos():
     """Inicializa los datos en Google Sheets si las hojas están vacías"""
@@ -516,7 +522,7 @@ def eliminar_corregir_datos():
         
         if not df_vehiculos.empty:
             clientes_acceso = obtener_clientes_accesibles()
-            df_vehiculos = df_vehiculos[df_vehiculos['nit_cliente'].isin(clientes_acceso)]
+            df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
             
             if not df_vehiculos.empty:
                 id_editar = st.selectbox("Seleccionar Vehículo", 
@@ -574,7 +580,7 @@ def eliminar_corregir_datos():
         
         if not df_llantas.empty:
             clientes_acceso = obtener_clientes_accesibles()
-            df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
+            df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
             
             if not df_llantas.empty:
                 id_editar = st.selectbox("Seleccionar Llanta", df_llantas['id_llanta'].values)
@@ -685,7 +691,7 @@ def ver_llantas_disponibles():
         return
     
     clientes_acceso = obtener_clientes_accesibles()
-    df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
+    df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
     
     if df_llantas.empty:
         st.info("No tienes llantas accesibles")
@@ -900,7 +906,15 @@ def crear_cliente():
                     if frente:
                         frentes.append(frente)
         
-        if st.button("💾 Guardar Cliente", type="primary"):
+        # Mostrar mensaje de éxito si viene de crear cliente
+        if st.session_state.get('cliente_creado'):
+            st.success("✅ ¡Cliente creado con éxito!")
+            st.session_state['cliente_creado'] = False
+
+        # Evitar doble click
+        guardando = st.session_state.get('guardando_cliente', False)
+
+        if st.button("💾 Guardar Cliente", type="primary", disabled=guardando):
             if len(nit) != 10 or not nit.isdigit():
                 st.error("El NIT debe tener exactamente 10 dígitos numéricos")
             elif not nombre_cliente:
@@ -908,6 +922,7 @@ def crear_cliente():
             elif num_frentes > 0 and len(frentes) != num_frentes:
                 st.error("Debes ingresar todos los nombres de frentes")
             else:
+                st.session_state['guardando_cliente'] = True
                 df_clientes = leer_hoja(SHEET_CLIENTES)
 
                 # Verificar si el NIT ya existe (solo si hay datos)
@@ -917,6 +932,7 @@ def crear_cliente():
 
                 if nit_existe:
                     st.error("Este NIT ya está registrado")
+                    st.session_state['guardando_cliente'] = False
                 else:
                     nuevo_cliente = pd.DataFrame([{
                         'nit': nit,
@@ -924,11 +940,11 @@ def crear_cliente():
                         'frentes': json.dumps(frentes) if frentes else json.dumps([]),
                         'fecha_creacion': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }])
-                    
+
                     df_clientes = pd.concat([df_clientes, nuevo_cliente], ignore_index=True)
                     escribir_hoja(SHEET_CLIENTES, df_clientes)
-                    st.success("✅ Dato creado con éxito")
-                    st.balloons()
+                    st.session_state['cliente_creado'] = True
+                    st.session_state['guardando_cliente'] = False
                     st.rerun()
     
     with tab2:
@@ -936,7 +952,7 @@ def crear_cliente():
         
         if st.session_state.get('nivel') == 4:
             clientes_acceso = obtener_clientes_accesibles()
-            df_clientes = df_clientes[df_clientes['nit'].isin(clientes_acceso)]
+            df_clientes = filtrar_por_clientes(df_clientes, 'nit', clientes_acceso)
         
         if not df_clientes.empty:
             for idx, row in df_clientes.iterrows():
@@ -963,7 +979,7 @@ def crear_vehiculos():
     df_clientes = leer_hoja(SHEET_CLIENTES)
     
     clientes_acceso = obtener_clientes_accesibles()
-    df_clientes = df_clientes[df_clientes['nit'].isin(clientes_acceso)]
+    df_clientes = filtrar_por_clientes(df_clientes, 'nit', clientes_acceso)
     
     if df_clientes.empty:
         st.warning("⚠️ Primero debes crear un cliente o no tienes acceso")
@@ -1040,7 +1056,7 @@ def crear_vehiculos():
     with tab2:
         df_vehiculos = leer_hoja(SHEET_VEHICULOS)
         
-        df_vehiculos = df_vehiculos[df_vehiculos['nit_cliente'].isin(clientes_acceso)]
+        df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
         
         if not df_vehiculos.empty:
             df_display = df_vehiculos.merge(df_clientes[['nit', 'nombre_cliente']], left_on='nit_cliente', right_on='nit')
@@ -1064,7 +1080,7 @@ def crear_llantas():
     df_llantas = leer_hoja(SHEET_LLANTAS)
     
     clientes_acceso = obtener_clientes_accesibles()
-    df_clientes = df_clientes[df_clientes['nit'].isin(clientes_acceso)]
+    df_clientes = filtrar_por_clientes(df_clientes, 'nit', clientes_acceso)
     
     if df_clientes.empty:
         st.warning("⚠️ Primero debes crear un cliente o no tienes acceso")
@@ -1151,7 +1167,7 @@ def crear_llantas():
     with tab2:
         df_llantas = leer_hoja(SHEET_LLANTAS)
         
-        df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
+        df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
         
         if not df_llantas.empty:
             df_display = df_llantas.merge(df_clientes[['nit', 'nombre_cliente']], left_on='nit_cliente', right_on='nit', how='left')
@@ -1181,8 +1197,8 @@ def montaje_llantas():
     df_vehiculos = leer_hoja(SHEET_VEHICULOS)
     
     clientes_acceso = obtener_clientes_accesibles()
-    df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
-    df_vehiculos = df_vehiculos[df_vehiculos['nit_cliente'].isin(clientes_acceso)]
+    df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
+    df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
     
     if df_llantas.empty or df_vehiculos.empty:
         st.warning("⚠️ Debes tener llantas y vehículos registrados")
@@ -1255,7 +1271,7 @@ def registrar_servicios():
     df_vehiculos = leer_hoja(SHEET_VEHICULOS)
     
     clientes_acceso = obtener_clientes_accesibles()
-    df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
+    df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
     
     llantas_en_piso = df_llantas[df_llantas['disponibilidad'] == 'al_piso']
     
@@ -1397,7 +1413,7 @@ def desmontaje_llantas():
     df_llantas = leer_hoja(SHEET_LLANTAS)
     
     clientes_acceso = obtener_clientes_accesibles()
-    df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
+    df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
     
     llantas_montadas = df_llantas[df_llantas['disponibilidad'] == 'al_piso']
     
@@ -1623,8 +1639,8 @@ def reportes():
         df_vehiculos = leer_hoja(SHEET_VEHICULOS)
         
         clientes_acceso = obtener_clientes_accesibles()
-        df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
-        df_vehiculos = df_vehiculos[df_vehiculos['nit_cliente'].isin(clientes_acceso)]
+        df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
+        df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
         
         if not df_llantas.empty:
             col1, col2, col3, col4 = st.columns(4)
