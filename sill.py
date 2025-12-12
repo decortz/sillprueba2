@@ -147,16 +147,23 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ============= CONEXIÓN A GOOGLE SHEETS =============
+# URL del spreadsheet
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1H05kURh2Lbo6C1rvOW4RyBNM8fyPFrlHqoT-U0TkCqE"
+
 @st.cache_resource
 def get_gsheets_connection():
-    """Obtiene la conexión a Google Sheets"""
+    """Obtiene la conexión a Google Sheets con Service Account"""
     return st.connection("gsheets", type=GSheetsConnection)
 
 def leer_hoja(nombre_hoja):
     """Lee una hoja de Google Sheets y retorna un DataFrame"""
     try:
         conn = get_gsheets_connection()
-        df = conn.read(worksheet=nombre_hoja, ttl=5)
+        df = conn.read(
+            spreadsheet=SPREADSHEET_URL,
+            worksheet=nombre_hoja,
+            ttl=5
+        )
         if df is None or df.empty:
             return pd.DataFrame()
         # Eliminar filas completamente vacías
@@ -170,7 +177,11 @@ def escribir_hoja(nombre_hoja, df):
     """Escribe un DataFrame a una hoja de Google Sheets"""
     try:
         conn = get_gsheets_connection()
-        conn.update(worksheet=nombre_hoja, data=df)
+        conn.update(
+            spreadsheet=SPREADSHEET_URL,
+            worksheet=nombre_hoja,
+            data=df
+        )
         # Limpiar cache para que la próxima lectura sea fresca
         st.cache_resource.clear()
         return True
@@ -898,8 +909,13 @@ def crear_cliente():
                 st.error("Debes ingresar todos los nombres de frentes")
             else:
                 df_clientes = leer_hoja(SHEET_CLIENTES)
-                
-                if nit in df_clientes['nit'].values:
+
+                # Verificar si el NIT ya existe (solo si hay datos)
+                nit_existe = False
+                if not df_clientes.empty and 'nit' in df_clientes.columns:
+                    nit_existe = nit in df_clientes['nit'].astype(str).values
+
+                if nit_existe:
                     st.error("Este NIT ya está registrado")
                 else:
                     nuevo_cliente = pd.DataFrame([{
