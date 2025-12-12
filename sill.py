@@ -909,8 +909,13 @@ def crear_cliente():
                 st.error("Debes ingresar todos los nombres de frentes")
             else:
                 df_clientes = leer_hoja(SHEET_CLIENTES)
-                
-                if nit in df_clientes['nit'].values:
+
+                # Verificar si el NIT ya existe (solo si hay datos)
+                nit_existe = False
+                if not df_clientes.empty and 'nit' in df_clientes.columns:
+                    nit_existe = nit in df_clientes['nit'].astype(str).values
+
+                if nit_existe:
                     st.error("Este NIT ya está registrado")
                 else:
                     nuevo_cliente = pd.DataFrame([{
