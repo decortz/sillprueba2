@@ -2,9 +2,15 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os
 import json
-import tempfile
+from streamlit_gsheets import GSheetsConnection
+
+# Nombres de las hojas en Google Sheets
+SHEET_CLIENTES = "clientes"
+SHEET_VEHICULOS = "vehiculos"
+SHEET_LLANTAS = "llantas"
+SHEET_SERVICIOS = "servicios"
+SHEET_USUARIOS = "usuarios"
 
 # Configuración de la página con colores personalizados
 st.set_page_config(page_title="Sistema Integrado de Llantas", layout="wide", initial_sidebar_state="expanded")
@@ -140,62 +146,51 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Directorios para datos
-if 'DATA_DIR' not in st.session_state:
-    try:
-        DATA_DIR = "data"
-        os.makedirs(DATA_DIR, exist_ok=True)
-        st.session_state['DATA_DIR'] = DATA_DIR
-    except:
-        DATA_DIR = tempfile.mkdtemp()
-        st.session_state['DATA_DIR'] = DATA_DIR
-else:
-    DATA_DIR = st.session_state['DATA_DIR']
+# ============= CONEXIÓN A GOOGLE SHEETS =============
+@st.cache_resource
+def get_gsheets_connection():
+    """Obtiene la conexión a Google Sheets"""
+    return st.connection("gsheets", type=GSheetsConnection)
 
-CLIENTES_FILE = os.path.join(DATA_DIR, "clientes.csv")
-VEHICULOS_FILE = os.path.join(DATA_DIR, "vehiculos.csv")
-LLANTAS_FILE = os.path.join(DATA_DIR, "llantas.csv")
-SERVICIOS_FILE = os.path.join(DATA_DIR, "servicios.csv")
-USUARIOS_FILE = os.path.join(DATA_DIR, "usuarios.csv")
+def leer_hoja(nombre_hoja):
+    """Lee una hoja de Google Sheets y retorna un DataFrame"""
+    try:
+        conn = get_gsheets_connection()
+        df = conn.read(worksheet=nombre_hoja, ttl=5)
+        if df is None or df.empty:
+            return pd.DataFrame()
+        # Eliminar filas completamente vacías
+        df = df.dropna(how='all')
+        return df
+    except Exception as e:
+        st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
+        return pd.DataFrame()
+
+def escribir_hoja(nombre_hoja, df):
+    """Escribe un DataFrame a una hoja de Google Sheets"""
+    try:
+        conn = get_gsheets_connection()
+        conn.update(worksheet=nombre_hoja, data=df)
+        # Limpiar cache para que la próxima lectura sea fresca
+        st.cache_resource.clear()
+        return True
+    except Exception as e:
+        st.error(f"Error escribiendo en {nombre_hoja}: {str(e)}")
+        return False
 
 # ============= FUNCIONES DE INICIALIZACIÓN =============
-def inicializar_archivos():
-    """Crea los archivos CSV si no existen"""
-    if not os.path.exists(CLIENTES_FILE):
-        pd.DataFrame(columns=['nit', 'nombre_cliente', 'frentes', 'fecha_creacion']).to_csv(CLIENTES_FILE, index=False, encoding='utf-8')
-    
-    if not os.path.exists(VEHICULOS_FILE):
-        pd.DataFrame(columns=[
-            'id_vehiculo', 'nit_cliente', 'marca', 'linea', 'tipologia', 'placa_vehiculo', 
-            'frente', 'estado', 'kilometraje_inicial', 'calculo_kms', 'fecha_creacion'
-        ]).to_csv(VEHICULOS_FILE, index=False, encoding='utf-8')
-    
-    if not os.path.exists(LLANTAS_FILE):
-        pd.DataFrame(columns=[
-            'id_llanta', 'nit_cliente', 'marca_llanta', 'referencia', 'dimension', 
-            'disponibilidad', 'placa_vehiculo', 'pos_inicial', 'pos_final', 
-            'estado_reencauche', 'reencauche1', 'reencauche2', 'reencauche3', 'reencauche4', 
-            'vida', 'precio_vida1', 'precio_vida2', 'precio_vida3', 'precio_vida4',
-            'costo_km_vida1', 'costo_km_vida2', 'costo_km_vida3', 'costo_km_vida4',
-            'fecha_creacion', 'fecha_modificacion'
-        ]).to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
-    
-    if not os.path.exists(SERVICIOS_FILE):
-        pd.DataFrame(columns=[
-            'id_servicio', 'fecha', 'id_llanta', 'placa_vehiculo', 'pos_inicial', 'pos_final', 
-            'vida', 'tipologia', 'disponibilidad', 'kilometraje', 'rotacion', 'profundidad_1', 
-            'profundidad_2', 'profundidad_3', 'balanceo', 'alineacion', 'regrabacion', 'torqueo', 
-            'comentarios', 'usuario_registro', 'timestamp'
-        ]).to_csv(SERVICIOS_FILE, index=False, encoding='utf-8')
-    
-    if not os.path.exists(USUARIOS_FILE):
+def inicializar_datos():
+    """Inicializa los datos en Google Sheets si las hojas están vacías"""
+    # Verificar si usuarios está vacío y crear usuarios por defecto
+    df_usuarios = leer_hoja(SHEET_USUARIOS)
+    if df_usuarios.empty:
         usuarios_default = pd.DataFrame([
             {'usuario': 'admin', 'password': 'admin123', 'nivel': 1, 'nombre': 'Administrador', 'clientes_asignados': ''},
             {'usuario': 'supervisor', 'password': 'super123', 'nivel': 2, 'nombre': 'Supervisor', 'clientes_asignados': ''},
             {'usuario': 'admin_cliente', 'password': 'cliente123', 'nivel': 4, 'nombre': 'Admin Cliente', 'clientes_asignados': ''},
             {'usuario': 'operario', 'password': 'oper123', 'nivel': 3, 'nombre': 'Operario', 'clientes_asignados': ''}
         ])
-        usuarios_default.to_csv(USUARIOS_FILE, index=False, encoding='utf-8')
+        escribir_hoja(SHEET_USUARIOS, usuarios_default)
 
 # ============= FUNCIONES AUXILIARES =============
 def calcular_costo_km_vida(id_llanta, vida, guardar=False):
@@ -206,8 +201,8 @@ def calcular_costo_km_vida(id_llanta, vida, guardar=False):
     Retorna None si no hay suficientes datos
     """
     try:
-        df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
-        df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+        df_llantas = leer_hoja(SHEET_LLANTAS)
+        df_servicios = leer_hoja(SHEET_SERVICIOS)
         
         llanta = df_llantas[df_llantas['id_llanta'] == id_llanta]
         if llanta.empty:
@@ -245,7 +240,7 @@ def calcular_costo_km_vida(id_llanta, vida, guardar=False):
         if guardar:
             costo_col = f'costo_km_vida{vida}'
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, costo_col] = costo_km_redondeado
-            df_llantas.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+            escribir_hoja(SHEET_LLANTAS, df_llantas)
         
         return costo_km_redondeado
     
@@ -258,8 +253,8 @@ def calcular_costo_km_acumulado(id_llanta):
     Formula: suma(precios_vidas) / km_totales
     """
     try:
-        df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
-        df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+        df_llantas = leer_hoja(SHEET_LLANTAS)
+        df_servicios = leer_hoja(SHEET_SERVICIOS)
         
         llanta = df_llantas[df_llantas['id_llanta'] == id_llanta]
         if llanta.empty:
@@ -301,7 +296,7 @@ def actualizar_costos_km_llanta(id_llanta):
     Recalcula costo_km_vida1, costo_km_vida2, costo_km_vida3, costo_km_vida4
     """
     try:
-        df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+        df_llantas = leer_hoja(SHEET_LLANTAS)
         
         llanta = df_llantas[df_llantas['id_llanta'] == id_llanta]
         if llanta.empty:
@@ -322,7 +317,7 @@ def actualizar_costos_km_llanta(id_llanta):
                     if costo_col in df_llantas.columns:
                         df_llantas.loc[df_llantas['id_llanta'] == id_llanta, costo_col] = None
         
-        df_llantas.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+        escribir_hoja(SHEET_LLANTAS, df_llantas)
         return True
     
     except Exception as e:
@@ -352,7 +347,7 @@ def obtener_clientes_accesibles():
 
     # Solo nivel 1 (Admin) ve todos los clientes
     if nivel == 1:
-        df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+        df_clientes = leer_hoja(SHEET_CLIENTES)
         return df_clientes['nit'].tolist() if not df_clientes.empty else []
 
     # Niveles 2, 3 y 4 solo ven clientes asignados
@@ -366,8 +361,8 @@ def obtener_clientes_accesibles():
 
 def generar_id_servicio(nit_cliente, frente):
     """Genera el ID de servicio con formato: 2 letras cliente + letra frente + consecutivo"""
-    df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
-    df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+    df_clientes = leer_hoja(SHEET_CLIENTES)
+    df_servicios = leer_hoja(SHEET_SERVICIOS)
     
     nombre_cliente = df_clientes[df_clientes['nit'] == nit_cliente]['nombre_cliente'].values[0]
     
@@ -409,7 +404,7 @@ def login():
         password = st.text_input("Contraseña", type="password")
         
         if st.button("Iniciar Sesión", use_container_width=True):
-            df_usuarios = pd.read_csv(USUARIOS_FILE, encoding='utf-8')
+            df_usuarios = leer_hoja(SHEET_USUARIOS)
             user_data = df_usuarios[(df_usuarios['usuario'] == usuario) & (df_usuarios['password'] == password)]
             
             if not user_data.empty:
@@ -465,21 +460,21 @@ def subir_datos_csv():
             with col1:
                 if st.button("✅ Confirmar y Agregar Datos", type="primary"):
                     if tipo_dato == "Clientes":
-                        df_existente = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+                        df_existente = leer_hoja(SHEET_CLIENTES)
                         df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
-                        df_combinado.to_csv(CLIENTES_FILE, index=False, encoding='utf-8')
+                        escribir_hoja(SHEET_CLIENTES, df_combinado)
                     elif tipo_dato == "Vehículos":
-                        df_existente = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+                        df_existente = leer_hoja(SHEET_VEHICULOS)
                         df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
-                        df_combinado.to_csv(VEHICULOS_FILE, index=False, encoding='utf-8')
+                        escribir_hoja(SHEET_VEHICULOS, df_combinado)
                     elif tipo_dato == "Llantas":
-                        df_existente = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+                        df_existente = leer_hoja(SHEET_LLANTAS)
                         df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
-                        df_combinado.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                        escribir_hoja(SHEET_LLANTAS, df_combinado)
                     elif tipo_dato == "Servicios":
-                        df_existente = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+                        df_existente = leer_hoja(SHEET_SERVICIOS)
                         df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
-                        df_combinado.to_csv(SERVICIOS_FILE, index=False, encoding='utf-8')
+                        escribir_hoja(SHEET_SERVICIOS, df_combinado)
                     
                     st.success(f"✅ Datos de {tipo_dato} agregados exitosamente")
                     st.rerun()
@@ -506,7 +501,7 @@ def eliminar_corregir_datos():
     
     with tab1:
         st.subheader("Gestión de Vehículos")
-        df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+        df_vehiculos = leer_hoja(SHEET_VEHICULOS)
         
         if not df_vehiculos.empty:
             clientes_acceso = obtener_clientes_accesibles()
@@ -539,22 +534,22 @@ def eliminar_corregir_datos():
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
                     if st.button("💾 Guardar Cambios", key="guardar_vehiculo"):
-                        df_todos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+                        df_todos = leer_hoja(SHEET_VEHICULOS)
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'marca'] = nueva_marca
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'linea'] = nueva_linea
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'tipologia'] = nueva_tipologia
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'estado'] = nuevo_estado
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'kilometraje_inicial'] = nuevo_km_inicial
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'calculo_kms'] = nuevo_calculo
-                        df_todos.to_csv(VEHICULOS_FILE, index=False, encoding='utf-8')
+                        escribir_hoja(SHEET_VEHICULOS, df_todos)
                         st.success("✅ Vehículo actualizado con éxito")
                         st.rerun()
                 
                 with col_btn2:
                     if st.button("🗑️ Eliminar Vehículo", key="eliminar_vehiculo"):
-                        df_todos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+                        df_todos = leer_hoja(SHEET_VEHICULOS)
                         df_todos = df_todos[df_todos['id_vehiculo'] != id_editar]
-                        df_todos.to_csv(VEHICULOS_FILE, index=False, encoding='utf-8')
+                        escribir_hoja(SHEET_VEHICULOS, df_todos)
                         st.success("✅ Vehículo eliminado con éxito")
                         st.rerun()
             else:
@@ -564,7 +559,7 @@ def eliminar_corregir_datos():
     
     with tab2:
         st.subheader("Gestión de Llantas")
-        df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+        df_llantas = leer_hoja(SHEET_LLANTAS)
         
         if not df_llantas.empty:
             clientes_acceso = obtener_clientes_accesibles()
@@ -593,7 +588,7 @@ def eliminar_corregir_datos():
                 st.info("💡 Los costos/km se recalculan automáticamente al guardar cambios")
                 
                 if st.button("💾 Guardar Cambios", key="guardar_llanta"):
-                    df_todos = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+                    df_todos = leer_hoja(SHEET_LLANTAS)
                     df_todos.loc[df_todos['id_llanta'] == id_editar, 'marca_llanta'] = nueva_marca
                     df_todos.loc[df_todos['id_llanta'] == id_editar, 'referencia'] = nueva_referencia
                     df_todos.loc[df_todos['id_llanta'] == id_editar, 'dimension'] = nueva_dimension
@@ -601,7 +596,7 @@ def eliminar_corregir_datos():
                     df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida2'] = precio_v2
                     df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida3'] = precio_v3
                     df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida4'] = precio_v4
-                    df_todos.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_LLANTAS, df_todos)
                     
                     # Recalcular costos/km después de guardar
                     actualizar_costos_km_llanta(id_editar)
@@ -610,9 +605,9 @@ def eliminar_corregir_datos():
                     st.rerun()
                 
                 if st.button("🗑️ Eliminar Llanta", key="eliminar_llanta"):
-                    df_todos = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+                    df_todos = leer_hoja(SHEET_LLANTAS)
                     df_todos = df_todos[df_todos['id_llanta'] != id_editar]
-                    df_todos.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_LLANTAS, df_todos)
                     st.success("✅ Llanta eliminada con éxito")
                     st.rerun()
             else:
@@ -622,14 +617,14 @@ def eliminar_corregir_datos():
     
     with tab3:
         st.subheader("Gestión de Servicios")
-        df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+        df_servicios = leer_hoja(SHEET_SERVICIOS)
         
         if not df_servicios.empty:
             id_servicio_editar = st.selectbox("Seleccionar Servicio", df_servicios['id_servicio'].values)
             
             if st.button("🗑️ Eliminar Servicio", key="eliminar_servicio"):
                 df_servicios = df_servicios[df_servicios['id_servicio'] != id_servicio_editar]
-                df_servicios.to_csv(SERVICIOS_FILE, index=False, encoding='utf-8')
+                escribir_hoja(SHEET_SERVICIOS, df_servicios)
                 st.success("✅ Servicio eliminado con éxito")
                 st.rerun()
         else:
@@ -642,7 +637,7 @@ def eliminar_corregir_datos():
             st.warning("⚠️ Solo el Administrador puede editar clientes")
             return
         
-        df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+        df_clientes = leer_hoja(SHEET_CLIENTES)
         
         if not df_clientes.empty:
             nit_editar = st.selectbox("Seleccionar Cliente", df_clientes['nit'].values)
@@ -653,13 +648,13 @@ def eliminar_corregir_datos():
             
             if st.button("💾 Guardar Cambios", key="guardar_cliente"):
                 df_clientes.loc[df_clientes['nit'] == nit_editar, 'nombre_cliente'] = nuevo_nombre
-                df_clientes.to_csv(CLIENTES_FILE, index=False, encoding='utf-8')
+                escribir_hoja(SHEET_CLIENTES, df_clientes)
                 st.success("✅ Cliente actualizado con éxito")
                 st.rerun()
             
             if st.button("🗑️ Eliminar Cliente", key="eliminar_cliente"):
                 df_clientes = df_clientes[df_clientes['nit'] != nit_editar]
-                df_clientes.to_csv(CLIENTES_FILE, index=False, encoding='utf-8')
+                escribir_hoja(SHEET_CLIENTES, df_clientes)
                 st.success("✅ Cliente eliminado con éxito")
                 st.rerun()
         else:
@@ -672,7 +667,7 @@ def ver_llantas_disponibles():
     st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
     st.header("🔍 Estado de Llantas")
     
-    df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+    df_llantas = leer_hoja(SHEET_LLANTAS)
     
     if df_llantas.empty:
         st.info("No hay llantas registradas")
@@ -727,7 +722,7 @@ def ver_llantas_disponibles():
                 if not marca_masiva:
                     st.error("Debes ingresar la marca de reencauche")
                 else:
-                    df_todos = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+                    df_todos = leer_hoja(SHEET_LLANTAS)
                     for idx, row in llantas_reencauche.iterrows():
                         vida_actual = int(row['vida']) if pd.notna(row['vida']) else 0
                         vida_nueva = vida_actual + 1
@@ -745,7 +740,7 @@ def ver_llantas_disponibles():
                         df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'estado_reencauche'] = 'aprobado'
                         df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    df_todos.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_LLANTAS, df_todos)
                     st.success(f"✅ {len(llantas_reencauche)} llantas aprobadas con marca: {marca_masiva}")
                     st.rerun()
             
@@ -767,7 +762,7 @@ def ver_llantas_disponibles():
                         if not marca_individual:
                             st.error("Ingresa la marca")
                         else:
-                            df_todos = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+                            df_todos = leer_hoja(SHEET_LLANTAS)
                             vida_nueva = int(vida) + 1
                             
                             if vida_nueva == 1:
@@ -783,7 +778,7 @@ def ver_llantas_disponibles():
                             df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'estado_reencauche'] = 'aprobado'
                             df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             
-                            df_todos.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                            escribir_hoja(SHEET_LLANTAS, df_todos)
                             st.success(f"✅ Llanta aprobada")
                             st.rerun()
         else:
@@ -902,7 +897,7 @@ def crear_cliente():
             elif num_frentes > 0 and len(frentes) != num_frentes:
                 st.error("Debes ingresar todos los nombres de frentes")
             else:
-                df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+                df_clientes = leer_hoja(SHEET_CLIENTES)
                 
                 if nit in df_clientes['nit'].values:
                     st.error("Este NIT ya está registrado")
@@ -915,13 +910,13 @@ def crear_cliente():
                     }])
                     
                     df_clientes = pd.concat([df_clientes, nuevo_cliente], ignore_index=True)
-                    df_clientes.to_csv(CLIENTES_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_CLIENTES, df_clientes)
                     st.success("✅ Dato creado con éxito")
                     st.balloons()
                     st.rerun()
     
     with tab2:
-        df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+        df_clientes = leer_hoja(SHEET_CLIENTES)
         
         if st.session_state.get('nivel') == 4:
             clientes_acceso = obtener_clientes_accesibles()
@@ -949,7 +944,7 @@ def crear_vehiculos():
     if not verificar_permiso(2):
         return
     
-    df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+    df_clientes = leer_hoja(SHEET_CLIENTES)
     
     clientes_acceso = obtener_clientes_accesibles()
     df_clientes = df_clientes[df_clientes['nit'].isin(clientes_acceso)]
@@ -967,7 +962,7 @@ def crear_vehiculos():
         
         with col1:
             # ID manual
-            df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+            df_vehiculos = leer_hoja(SHEET_VEHICULOS)
             max_id = df_vehiculos['id_vehiculo'].max() if not df_vehiculos.empty and 'id_vehiculo' in df_vehiculos.columns else 0
             id_vehiculo = st.number_input("ID Vehículo", min_value=int(max_id)+1, value=int(max_id)+1)
             
@@ -999,7 +994,7 @@ def crear_vehiculos():
             if not placa_vehiculo or not marca or not linea:
                 st.error("Debes completar todos los campos obligatorios")
             else:
-                df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+                df_vehiculos = leer_hoja(SHEET_VEHICULOS)
                 
                 if placa_vehiculo in df_vehiculos['placa_vehiculo'].values:
                     st.error("Esta placa ya está registrada")
@@ -1021,13 +1016,13 @@ def crear_vehiculos():
                     }])
                     
                     df_vehiculos = pd.concat([df_vehiculos, nuevo_vehiculo], ignore_index=True)
-                    df_vehiculos.to_csv(VEHICULOS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_VEHICULOS, df_vehiculos)
                     st.success("✅ Dato creado con éxito")
                     st.balloons()
                     st.rerun()                
       
     with tab2:
-        df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+        df_vehiculos = leer_hoja(SHEET_VEHICULOS)
         
         df_vehiculos = df_vehiculos[df_vehiculos['nit_cliente'].isin(clientes_acceso)]
         
@@ -1049,8 +1044,8 @@ def crear_llantas():
     if not verificar_permiso(3):
         return
     
-    df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
-    df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+    df_clientes = leer_hoja(SHEET_CLIENTES)
+    df_llantas = leer_hoja(SHEET_LLANTAS)
     
     clientes_acceso = obtener_clientes_accesibles()
     df_clientes = df_clientes[df_clientes['nit'].isin(clientes_acceso)]
@@ -1098,7 +1093,7 @@ def crear_llantas():
             if not dimension or not referencia or not marca_llanta:
                 st.error("Debes completar todos los campos")
             else:
-                df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+                df_llantas = leer_hoja(SHEET_LLANTAS)
                 
                 if id_llanta in df_llantas['id_llanta'].values:
                     st.error("Este ID de llanta ya existe")
@@ -1132,13 +1127,13 @@ def crear_llantas():
                     }])
                     
                     df_llantas = pd.concat([df_llantas, nueva_llanta], ignore_index=True)
-                    df_llantas.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_LLANTAS, df_llantas)
                     st.success("✅ Dato creado con éxito")
                     st.balloons()
                     st.rerun()
     
     with tab2:
-        df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+        df_llantas = leer_hoja(SHEET_LLANTAS)
         
         df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
         
@@ -1166,8 +1161,8 @@ def montaje_llantas():
     if not verificar_permiso(3):
         return
     
-    df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
-    df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+    df_llantas = leer_hoja(SHEET_LLANTAS)
+    df_vehiculos = leer_hoja(SHEET_VEHICULOS)
     
     clientes_acceso = obtener_clientes_accesibles()
     df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
@@ -1208,7 +1203,7 @@ def montaje_llantas():
         if not posicion_inicial:
             st.error("Debes especificar la posición inicial")
         else:
-            df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+            df_llantas = leer_hoja(SHEET_LLANTAS)
             
             pos_inicial_actual = df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'pos_inicial'].values[0]
             if not pos_inicial_actual or pos_inicial_actual == '':
@@ -1220,7 +1215,7 @@ def montaje_llantas():
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'estado_reencauche'] = ''
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            df_llantas.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+            escribir_hoja(SHEET_LLANTAS, df_llantas)
             st.success(f"✅ Llanta ID {id_llanta} montada en vehículo {placa_vehiculo} - Posición: {posicion_inicial}")
             st.rerun()
     
@@ -1240,8 +1235,8 @@ def registrar_servicios():
     if not verificar_permiso(3):
         return
     
-    df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
-    df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+    df_llantas = leer_hoja(SHEET_LLANTAS)
+    df_vehiculos = leer_hoja(SHEET_VEHICULOS)
     
     clientes_acceso = obtener_clientes_accesibles()
     df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
@@ -1289,9 +1284,9 @@ def registrar_servicios():
         if rotacion and not nueva_posicion:
             st.error("Si hay rotación, debes especificar la nueva posición")
         else:
-            df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
-            df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
-            df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+            df_servicios = leer_hoja(SHEET_SERVICIOS)
+            df_llantas = leer_hoja(SHEET_LLANTAS)
+            df_vehiculos = leer_hoja(SHEET_VEHICULOS)
             
             llanta_data = df_llantas[df_llantas['id_llanta'] == id_llanta].iloc[0]
             placa = llanta_data['placa_vehiculo']
@@ -1310,7 +1305,7 @@ def registrar_servicios():
             
             if rotacion and nueva_posicion:
                 df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'pos_final'] = nueva_posicion
-                df_llantas.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                escribir_hoja(SHEET_LLANTAS, df_llantas)
             
             nuevo_servicio = pd.DataFrame([{
                 'id_servicio': id_servicio,
@@ -1337,7 +1332,7 @@ def registrar_servicios():
             }])
             
             df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
-            df_servicios.to_csv(SERVICIOS_FILE, index=False, encoding='utf-8')
+            escribir_hoja(SHEET_SERVICIOS, df_servicios)
             
             # ACTUALIZAR COSTOS/KM AUTOMÁTICAMENTE
             actualizar_costos_km_llanta(id_llanta)
@@ -1368,7 +1363,7 @@ def registrar_servicios():
     
     st.divider()
     st.subheader("📋 Historial de Servicios")
-    df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+    df_servicios = leer_hoja(SHEET_SERVICIOS)
     if not df_servicios.empty:
         servicios_recientes = df_servicios.sort_values('timestamp', ascending=False).head(10)
         columnas_mostrar = [col for col in ['id_servicio', 'fecha', 'id_llanta', 'placa_vehiculo', 'pos_inicial', 'vida', 'tipologia', 'kilometraje', 'profundidad_1', 'profundidad_2', 'profundidad_3'] if col in servicios_recientes.columns]
@@ -1383,7 +1378,7 @@ def desmontaje_llantas():
     if not verificar_permiso(2):
         return
     
-    df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+    df_llantas = leer_hoja(SHEET_LLANTAS)
     
     clientes_acceso = obtener_clientes_accesibles()
     df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
@@ -1417,15 +1412,15 @@ def desmontaje_llantas():
         if nueva_disponibilidad == 'FVU' and not razon_fvu:
             st.error("Debes especificar la razón del desecho")
         else:
-            df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
-            df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+            df_llantas = leer_hoja(SHEET_LLANTAS)
+            df_servicios = leer_hoja(SHEET_SERVICIOS)
             
             if nueva_disponibilidad == 'FVU':
                 servicios_llanta = df_servicios[df_servicios['id_llanta'] == id_llanta]
                 if not servicios_llanta.empty:
                     ultimo_servicio_idx = df_servicios[df_servicios['id_llanta'] == id_llanta].index[-1]
                     df_servicios.loc[ultimo_servicio_idx, 'comentario_fvu'] = razon_fvu
-                    df_servicios.to_csv(SERVICIOS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_SERVICIOS, df_servicios)
             
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'placa_vehiculo'] = ''
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1443,7 +1438,7 @@ def desmontaje_llantas():
                 df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'estado_reencauche'] = ''
                 mensaje = f"✅ Llanta ID {id_llanta} desmontada. Estado: RECAMBIO (Disponible)"
             
-            df_llantas.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+            escribir_hoja(SHEET_LLANTAS, df_llantas)
             st.success(mensaje)
             st.rerun()
     
@@ -1467,7 +1462,7 @@ def desmontaje_llantas():
                 if st.button(f"Aprobar", key=f"aprobar_desm_{row['id_llanta']}"):
                     df_llantas.loc[df_llantas['id_llanta'] == row['id_llanta'], 'estado_reencauche'] = 'aprobado'
                     df_llantas.loc[df_llantas['id_llanta'] == row['id_llanta'], 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    df_llantas.to_csv(LLANTAS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_LLANTAS, df_llantas)
                     st.success(f"Llanta ID {row['id_llanta']} aprobada para montaje")
                     st.rerun()
     else:
@@ -1484,7 +1479,7 @@ def reportes():
     with tab1:
         st.subheader("Análisis de Desgaste")
         
-        df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+        df_servicios = leer_hoja(SHEET_SERVICIOS)
         
         if df_servicios.empty:
             st.info("No hay datos de servicios para analizar")
@@ -1540,7 +1535,7 @@ def reportes():
     with tab2:
         st.subheader("Servicios por Llanta")
         
-        df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+        df_servicios = leer_hoja(SHEET_SERVICIOS)
         
         if not df_servicios.empty:
             resumen = df_servicios.groupby('id_llanta').agg({
@@ -1571,7 +1566,7 @@ def reportes():
     with tab3:
         st.subheader("Servicios por Vehículo")
         
-        df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+        df_servicios = leer_hoja(SHEET_SERVICIOS)
         
         if not df_servicios.empty:
             col1, col2 = st.columns(2)
@@ -1608,8 +1603,8 @@ def reportes():
     with tab4:
         st.subheader("Estado General de la Flota")
         
-        df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
-        df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+        df_llantas = leer_hoja(SHEET_LLANTAS)
+        df_vehiculos = leer_hoja(SHEET_VEHICULOS)
         
         clientes_acceso = obtener_clientes_accesibles()
         df_llantas = df_llantas[df_llantas['nit_cliente'].isin(clientes_acceso)]
@@ -1659,7 +1654,7 @@ def reportes():
         
         with col1:
             if st.button("📥 Descargar Servicios", use_container_width=True):
-                df_servicios = pd.read_csv(SERVICIOS_FILE, encoding='utf-8')
+                df_servicios = leer_hoja(SHEET_SERVICIOS)
                 csv = df_servicios.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Servicios.csv",
@@ -1669,7 +1664,7 @@ def reportes():
                 )
             
             if st.button("📥 Descargar Llantas", use_container_width=True):
-                df_llantas = pd.read_csv(LLANTAS_FILE, encoding='utf-8')
+                df_llantas = leer_hoja(SHEET_LLANTAS)
                 csv = df_llantas.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Llantas.csv",
@@ -1680,7 +1675,7 @@ def reportes():
         
         with col2:
             if st.button("📥 Descargar Vehículos", use_container_width=True):
-                df_vehiculos = pd.read_csv(VEHICULOS_FILE, encoding='utf-8')
+                df_vehiculos = leer_hoja(SHEET_VEHICULOS)
                 csv = df_vehiculos.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Vehiculos.csv",
@@ -1690,7 +1685,7 @@ def reportes():
                 )
             
             if st.button("📥 Descargar Clientes", use_container_width=True):
-                df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+                df_clientes = leer_hoja(SHEET_CLIENTES)
                 csv = df_clientes.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Clientes.csv",
@@ -1728,7 +1723,7 @@ def gestion_usuarios():
         clientes_seleccionados = ""
         if nuevo_nivel == 4:
             st.write("**Asignar Clientes (solo para Admin Cliente)**")
-            df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+            df_clientes = leer_hoja(SHEET_CLIENTES)
             if not df_clientes.empty:
                 clientes_opciones = st.multiselect(
                     "Seleccionar Clientes",
@@ -1743,7 +1738,7 @@ def gestion_usuarios():
             elif nuevo_nivel == 4 and not clientes_seleccionados:
                 st.error("Debes asignar al menos un cliente para Admin Cliente")
             else:
-                df_usuarios = pd.read_csv(USUARIOS_FILE, encoding='utf-8')
+                df_usuarios = leer_hoja(SHEET_USUARIOS)
                 
                 if nuevo_usuario in df_usuarios['usuario'].values:
                     st.error("Este nombre de usuario ya existe")
@@ -1757,14 +1752,14 @@ def gestion_usuarios():
                     }])
                     
                     df_usuarios = pd.concat([df_usuarios, nuevo_user], ignore_index=True)
-                    df_usuarios.to_csv(USUARIOS_FILE, index=False, encoding='utf-8')
+                    escribir_hoja(SHEET_USUARIOS, df_usuarios)
                     st.success("✅ Dato creado con éxito")
                     st.balloons()
                     st.rerun()
     
     with tab2:
-        df_usuarios = pd.read_csv(USUARIOS_FILE, encoding='utf-8')
-        df_clientes = pd.read_csv(CLIENTES_FILE, encoding='utf-8')
+        df_usuarios = leer_hoja(SHEET_USUARIOS)
+        df_clientes = leer_hoja(SHEET_CLIENTES)
         
         for idx, row in df_usuarios.iterrows():
             with st.expander(f"👤 {row.get('nombre', 'N/A')} - Nivel {row.get('nivel', 'N/A')}"):
@@ -1794,7 +1789,7 @@ def gestion_usuarios():
 def main():
     """Función principal del sistema"""
     
-    inicializar_archivos()
+    inicializar_datos()
     
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
