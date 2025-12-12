@@ -173,6 +173,23 @@ def leer_hoja(nombre_hoja):
         st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
         return pd.DataFrame()
 
+def leer_hoja_fresco(nombre_hoja):
+    """Lee una hoja de Google Sheets SIN caché - para verificaciones críticas"""
+    try:
+        conn = get_gsheets_connection()
+        df = conn.read(
+            spreadsheet=SPREADSHEET_URL,
+            worksheet=nombre_hoja,
+            ttl=0
+        )
+        if df is None or df.empty:
+            return pd.DataFrame()
+        df = df.dropna(how='all')
+        return df
+    except Exception as e:
+        st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
+        return pd.DataFrame()
+
 def escribir_hoja(nombre_hoja, df):
     """Escribe un DataFrame a una hoja de Google Sheets"""
     try:
@@ -384,32 +401,36 @@ def generar_id_servicio(nit_cliente, frente):
     """Genera el ID de servicio con formato: 2 letras cliente + letra frente + consecutivo"""
     df_clientes = leer_hoja(SHEET_CLIENTES)
     df_servicios = leer_hoja(SHEET_SERVICIOS)
-    
+
     nombre_cliente = df_clientes[df_clientes['nit'] == nit_cliente]['nombre_cliente'].values[0]
-    
+
     nombre_limpio = nombre_cliente.replace(" ", "")
     prefijo_cliente = nombre_limpio[:2].upper()
-    
+
     if frente and frente != "General":
         prefijo_frente = frente[0].upper()
     else:
         prefijo_frente = ""
-    
+
     prefijo = prefijo_cliente + prefijo_frente
-    
-    servicios_prefijo = df_servicios[df_servicios['id_servicio'].str.startswith(prefijo, na=False)]
-    
-    if servicios_prefijo.empty:
+
+    # Verificar que df_servicios tiene la columna necesaria
+    if df_servicios.empty or 'id_servicio' not in df_servicios.columns:
         consecutivo = 1
     else:
-        try:
-            numeros = servicios_prefijo['id_servicio'].str.extract(r'(\d+)$')[0].astype(int)
-            consecutivo = numeros.max() + 1
-        except:
+        servicios_prefijo = df_servicios[df_servicios['id_servicio'].str.startswith(prefijo, na=False)]
+
+        if servicios_prefijo.empty:
             consecutivo = 1
-    
+        else:
+            try:
+                numeros = servicios_prefijo['id_servicio'].str.extract(r'(\d+)$')[0].astype(int)
+                consecutivo = numeros.max() + 1
+            except:
+                consecutivo = 1
+
     id_servicio = f"{prefijo}{consecutivo:04d}"
-    
+
     return id_servicio
 
 # ============= SISTEMA DE AUTENTICACIÓN =============
@@ -927,9 +948,8 @@ def crear_cliente():
                 st.error("Debes ingresar todos los nombres de frentes")
             else:
                 st.session_state['guardando_cliente'] = True
-                # Limpiar caché y leer datos frescos
-                st.cache_resource.clear()
-                df_clientes = leer_hoja(SHEET_CLIENTES)
+                # Leer datos frescos SIN caché para verificar duplicados
+                df_clientes = leer_hoja_fresco(SHEET_CLIENTES)
 
                 # Verificar si el NIT ya existe
                 if existe_valor(df_clientes, 'nit', nit):
@@ -1026,8 +1046,8 @@ def crear_vehiculos():
             if not placa_vehiculo or not marca or not linea:
                 st.error("Debes completar todos los campos obligatorios")
             else:
-                st.cache_resource.clear()
-                df_vehiculos = leer_hoja(SHEET_VEHICULOS)
+                # Leer datos frescos SIN caché para verificar duplicados
+                df_vehiculos = leer_hoja_fresco(SHEET_VEHICULOS)
 
                 if existe_valor(df_vehiculos, 'placa_vehiculo', placa_vehiculo):
                     st.error("Esta placa ya está registrada")
@@ -1126,8 +1146,8 @@ def crear_llantas():
             if not dimension or not referencia or not marca_llanta:
                 st.error("Debes completar todos los campos")
             else:
-                st.cache_resource.clear()
-                df_llantas = leer_hoja(SHEET_LLANTAS)
+                # Leer datos frescos SIN caché para verificar duplicados
+                df_llantas = leer_hoja_fresco(SHEET_LLANTAS)
 
                 if existe_valor(df_llantas, 'id_llanta', id_llanta):
                     st.error("Este ID de llanta ya existe")
@@ -1787,8 +1807,8 @@ def gestion_usuarios():
             elif nuevo_nivel == 4 and not clientes_seleccionados:
                 st.error("Debes asignar al menos un cliente para Admin Cliente")
             else:
-                st.cache_resource.clear()
-                df_usuarios = leer_hoja(SHEET_USUARIOS)
+                # Leer datos frescos SIN caché para verificar duplicados
+                df_usuarios = leer_hoja_fresco(SHEET_USUARIOS)
 
                 if existe_valor(df_usuarios, 'usuario', nuevo_usuario):
                     st.error("Este nombre de usuario ya existe")
