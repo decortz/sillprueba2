@@ -195,6 +195,12 @@ def filtrar_por_clientes(df, columna_nit, clientes_acceso):
         return pd.DataFrame()
     return df[df[columna_nit].isin(clientes_acceso)]
 
+def existe_valor(df, columna, valor):
+    """Verifica si un valor existe en una columna de forma segura"""
+    if df.empty or columna not in df.columns:
+        return False
+    return str(valor) in df[columna].astype(str).values
+
 # ============= FUNCIONES DE INICIALIZACIÓN =============
 def inicializar_datos():
     """Inicializa los datos en Google Sheets si las hojas están vacías"""
@@ -923,14 +929,12 @@ def crear_cliente():
                 st.error("Debes ingresar todos los nombres de frentes")
             else:
                 st.session_state['guardando_cliente'] = True
+                # Limpiar caché y leer datos frescos
+                st.cache_resource.clear()
                 df_clientes = leer_hoja(SHEET_CLIENTES)
 
-                # Verificar si el NIT ya existe (solo si hay datos)
-                nit_existe = False
-                if not df_clientes.empty and 'nit' in df_clientes.columns:
-                    nit_existe = nit in df_clientes['nit'].astype(str).values
-
-                if nit_existe:
+                # Verificar si el NIT ya existe
+                if existe_valor(df_clientes, 'nit', nit):
                     st.error("Este NIT ya está registrado")
                     st.session_state['guardando_cliente'] = False
                 else:
@@ -1026,11 +1030,12 @@ def crear_vehiculos():
             if not placa_vehiculo or not marca or not linea:
                 st.error("Debes completar todos los campos obligatorios")
             else:
+                st.cache_resource.clear()
                 df_vehiculos = leer_hoja(SHEET_VEHICULOS)
-                
-                if placa_vehiculo in df_vehiculos['placa_vehiculo'].values:
+
+                if existe_valor(df_vehiculos, 'placa_vehiculo', placa_vehiculo):
                     st.error("Esta placa ya está registrada")
-                elif id_vehiculo in df_vehiculos['id_vehiculo'].values:
+                elif existe_valor(df_vehiculos, 'id_vehiculo', id_vehiculo):
                     st.error("Este ID de vehículo ya existe")
                 else:
                     nuevo_vehiculo = pd.DataFrame([{
@@ -1125,9 +1130,10 @@ def crear_llantas():
             if not dimension or not referencia or not marca_llanta:
                 st.error("Debes completar todos los campos")
             else:
+                st.cache_resource.clear()
                 df_llantas = leer_hoja(SHEET_LLANTAS)
-                
-                if id_llanta in df_llantas['id_llanta'].values:
+
+                if existe_valor(df_llantas, 'id_llanta', id_llanta):
                     st.error("Este ID de llanta ya existe")
                 else:
                     nueva_llanta = pd.DataFrame([{
@@ -1770,9 +1776,10 @@ def gestion_usuarios():
             elif nuevo_nivel == 4 and not clientes_seleccionados:
                 st.error("Debes asignar al menos un cliente para Admin Cliente")
             else:
+                st.cache_resource.clear()
                 df_usuarios = leer_hoja(SHEET_USUARIOS)
-                
-                if nuevo_usuario in df_usuarios['usuario'].values:
+
+                if existe_valor(df_usuarios, 'usuario', nuevo_usuario):
                     st.error("Este nombre de usuario ya existe")
                 else:
                     nuevo_user = pd.DataFrame([{
@@ -1804,9 +1811,11 @@ def gestion_usuarios():
                     clientes_nits = str(clientes_asignados).split(',')
                     nombres_clientes = []
                     for nit in clientes_nits:
-                        if nit and nit in df_clientes['nit'].values:
-                            nombre = df_clientes[df_clientes['nit']==nit]['nombre_cliente'].values[0]
-                            nombres_clientes.append(f"{nombre} ({nit})")
+                        if nit and existe_valor(df_clientes, 'nit', nit):
+                            cliente_row = df_clientes[df_clientes['nit'].astype(str) == str(nit)]
+                            if not cliente_row.empty:
+                                nombre = cliente_row['nombre_cliente'].values[0]
+                                nombres_clientes.append(f"{nombre} ({nit})")
                     if nombres_clientes:
                         st.write(f"**Clientes Asignados:** {', '.join(nombres_clientes)}")
         
