@@ -191,7 +191,7 @@ def leer_hoja_fresco(nombre_hoja):
         return pd.DataFrame()
 
 def escribir_hoja(nombre_hoja, df):
-    """Escribe un DataFrame a una hoja de Google Sheets"""
+    """Escribe un DataFrame a una hoja de Google Sheets y retorna datos frescos"""
     try:
         conn = get_gsheets_connection()
         conn.update(
@@ -199,10 +199,18 @@ def escribir_hoja(nombre_hoja, df):
             worksheet=nombre_hoja,
             data=df
         )
-        return True
+        # Leer datos frescos inmediatamente después de escribir
+        df_fresco = conn.read(
+            spreadsheet=SPREADSHEET_URL,
+            worksheet=nombre_hoja,
+            ttl=0
+        )
+        if df_fresco is not None:
+            df_fresco = df_fresco.dropna(how='all')
+        return df_fresco if df_fresco is not None else df
     except Exception as e:
         st.error(f"Error escribiendo en {nombre_hoja}: {str(e)}")
-        return False
+        return None
 
 def filtrar_por_clientes(df, columna_nit, clientes_acceso):
     """Filtra un DataFrame por clientes accesibles de forma segura"""
@@ -747,84 +755,113 @@ def ver_llantas_disponibles():
         st.dataframe(df_filtrado[columnas_disponibles], use_container_width=True)
     
     with tab2:
-        st.subheader("Aprobar Reencauches")
-        
+        st.subheader("✅ Aprobar Reencauches")
+
         if not verificar_permiso(2):
             return
-        
+
         llantas_reencauche = df_llantas[
-            (df_llantas['disponibilidad'] == 'reencauche') & 
+            (df_llantas['disponibilidad'] == 'reencauche') &
             (df_llantas['estado_reencauche'] == 'condicionada_planta')
         ]
-        
+
         if not llantas_reencauche.empty:
-            st.write("**Aprobación Masiva:**")
-            marca_masiva = st.text_input("Marca para aprobación masiva (aplicará a todas)")
-            if st.button("✅ Aprobar Todas", type="primary"):
-                if not marca_masiva:
-                    st.error("Debes ingresar la marca de reencauche")
+            st.info(f"📋 **{len(llantas_reencauche)} llantas** pendientes de aprobación de planta de reencauche")
+
+            # Formulario de datos del reencauche
+            st.write("### Datos del Reencauche")
+            col_form1, col_form2, col_form3 = st.columns(3)
+
+            with col_form1:
+                marca_reencauche = st.text_input("🏭 Marca Reencauche", placeholder="Ej: Vipal, Bandag")
+            with col_form2:
+                referencia_reencauche = st.text_input("📋 Referencia", placeholder="Ej: VT120, BDR-AS")
+            with col_form3:
+                precio_reencauche = st.number_input("💰 Precio Reencauche", min_value=0.0, value=0.0, step=10000.0)
+
+            st.divider()
+            st.write("### Seleccionar Llantas a Aprobar")
+            st.caption("Marca las llantas que deseas aprobar con los datos ingresados arriba")
+
+            # Inicializar estado de selección si no existe
+            if 'llantas_seleccionadas' not in st.session_state:
+                st.session_state.llantas_seleccionadas = []
+
+            # Mostrar tabla con checkboxes
+            llantas_seleccionadas = []
+            for idx, row in llantas_reencauche.iterrows():
+                id_llanta = row['id_llanta']
+                marca_original = row.get('marca_llanta', 'N/A')
+                referencia_original = row.get('referencia', 'N/A')
+                dimension = row.get('dimension', 'N/A')
+                vida_actual = int(row['vida']) if pd.notna(row.get('vida')) else 0
+                vida_nueva = vida_actual + 1
+
+                col_check, col_info, col_vida = st.columns([0.5, 3, 1])
+
+                with col_check:
+                    seleccionada = st.checkbox("", key=f"sel_{id_llanta}", label_visibility="collapsed")
+                    if seleccionada:
+                        llantas_seleccionadas.append(id_llanta)
+
+                with col_info:
+                    st.write(f"**ID {id_llanta}** - {marca_original} {referencia_original} ({dimension})")
+
+                with col_vida:
+                    st.write(f"Vida {vida_actual} → **{vida_nueva}**")
+
+            st.divider()
+
+            # Botón de aprobación múltiple
+            col_btn1, col_btn2 = st.columns([1, 3])
+            with col_btn1:
+                aprobar_btn = st.button("✅ Aprobar Seleccionadas", type="primary", disabled=len(llantas_seleccionadas) == 0)
+
+            with col_btn2:
+                if len(llantas_seleccionadas) > 0:
+                    st.write(f"Se aprobarán **{len(llantas_seleccionadas)}** llantas")
+
+            if aprobar_btn:
+                if not marca_reencauche:
+                    st.error("⚠️ Debes ingresar la marca del reencauche")
+                elif not referencia_reencauche:
+                    st.error("⚠️ Debes ingresar la referencia del reencauche")
+                elif precio_reencauche <= 0:
+                    st.error("⚠️ Debes ingresar el precio del reencauche")
+                elif len(llantas_seleccionadas) == 0:
+                    st.error("⚠️ Debes seleccionar al menos una llanta")
                 else:
                     df_todos = leer_hoja(SHEET_LLANTAS)
-                    for idx, row in llantas_reencauche.iterrows():
-                        vida_actual = int(row['vida']) if pd.notna(row['vida']) else 0
+                    aprobadas = 0
+
+                    for id_llanta in llantas_seleccionadas:
+                        llanta_row = llantas_reencauche[llantas_reencauche['id_llanta'] == id_llanta].iloc[0]
+                        vida_actual = int(llanta_row['vida']) if pd.notna(llanta_row.get('vida')) else 0
                         vida_nueva = vida_actual + 1
-                        
-                        if vida_nueva == 1:
-                            df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche1'] = marca_masiva
-                        elif vida_nueva == 2:
-                            df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche2'] = marca_masiva
+
+                        # Guardar marca y referencia del reencauche
+                        marca_ref_reencauche = f"{marca_reencauche} - {referencia_reencauche}"
+                        if vida_nueva == 2:
+                            df_todos.loc[df_todos['id_llanta'] == id_llanta, 'reencauche1'] = marca_ref_reencauche
+                            df_todos.loc[df_todos['id_llanta'] == id_llanta, 'precio_vida2'] = precio_reencauche
                         elif vida_nueva == 3:
-                            df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche3'] = marca_masiva
+                            df_todos.loc[df_todos['id_llanta'] == id_llanta, 'reencauche2'] = marca_ref_reencauche
+                            df_todos.loc[df_todos['id_llanta'] == id_llanta, 'precio_vida3'] = precio_reencauche
                         elif vida_nueva == 4:
-                            df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche4'] = marca_masiva
-                        
-                        df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'vida'] = vida_nueva
-                        df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'estado_reencauche'] = 'aprobado'
-                        df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
+                            df_todos.loc[df_todos['id_llanta'] == id_llanta, 'reencauche3'] = marca_ref_reencauche
+                            df_todos.loc[df_todos['id_llanta'] == id_llanta, 'precio_vida4'] = precio_reencauche
+
+                        df_todos.loc[df_todos['id_llanta'] == id_llanta, 'vida'] = vida_nueva
+                        df_todos.loc[df_todos['id_llanta'] == id_llanta, 'estado_reencauche'] = 'aprobado'
+                        df_todos.loc[df_todos['id_llanta'] == id_llanta, 'disponibilidad'] = 'recambio'
+                        df_todos.loc[df_todos['id_llanta'] == id_llanta, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        aprobadas += 1
+
                     escribir_hoja(SHEET_LLANTAS, df_todos)
-                    st.success(f"✅ {len(llantas_reencauche)} llantas aprobadas con marca: {marca_masiva}")
+                    st.success(f"✅ {aprobadas} llantas aprobadas - Marca: {marca_reencauche}, Ref: {referencia_reencauche}, Precio: ${precio_reencauche:,.0f}")
                     st.rerun()
-            
-            st.divider()
-            st.write("**Aprobación Individual:**")
-            
-            for idx, row in llantas_reencauche.iterrows():
-                marca = row.get('marca_llanta', 'N/A')
-                dimension = row.get('dimension', 'N/A')
-                vida = row.get('vida', 0)
-                
-                col1, col2, col3 = st.columns([2, 2, 1])
-                with col1:
-                    st.write(f"**ID {row['id_llanta']}** - {marca} {dimension}")
-                with col2:
-                    marca_individual = st.text_input(f"Marca", key=f"marca_ind_{row['id_llanta']}", label_visibility="collapsed")
-                with col3:
-                    if st.button("Aprobar", key=f"aprobar_{row['id_llanta']}"):
-                        if not marca_individual:
-                            st.error("Ingresa la marca")
-                        else:
-                            df_todos = leer_hoja(SHEET_LLANTAS)
-                            vida_nueva = int(vida) + 1
-                            
-                            if vida_nueva == 1:
-                                df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche1'] = marca_individual
-                            elif vida_nueva == 2:
-                                df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche2'] = marca_individual
-                            elif vida_nueva == 3:
-                                df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche3'] = marca_individual
-                            elif vida_nueva == 4:
-                                df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'reencauche4'] = marca_individual
-                            
-                            df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'vida'] = vida_nueva
-                            df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'estado_reencauche'] = 'aprobado'
-                            df_todos.loc[df_todos['id_llanta'] == row['id_llanta'], 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
-                            escribir_hoja(SHEET_LLANTAS, df_todos)
-                            st.success(f"✅ Llanta aprobada")
-                            st.rerun()
         else:
-            st.info("No hay llantas pendientes de aprobación")
+            st.info("✨ No hay llantas pendientes de aprobación de reencauche")
     
     with tab3:
         st.subheader("💰 Análisis de Costos por Kilómetro")
@@ -1208,58 +1245,69 @@ def crear_llantas():
 
 def montaje_llantas():
     """Función para montar llantas en vehículos"""
-    
+
     st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
     st.header("🔧 Montaje de Llantas")
-    
+
     if not verificar_permiso(3):
         return
-    
+
     df_llantas = leer_hoja(SHEET_LLANTAS)
     df_vehiculos = leer_hoja(SHEET_VEHICULOS)
-    
+
     clientes_acceso = obtener_clientes_accesibles()
     df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
     df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
-    
-    if df_llantas.empty or df_vehiculos.empty:
-        st.warning("⚠️ Debes tener llantas y vehículos registrados")
+
+    if df_vehiculos.empty:
+        st.warning("⚠️ No hay vehículos registrados para tus clientes")
         return
 
     # Verificar que el DataFrame tiene las columnas necesarias
-    if 'disponibilidad' not in df_llantas.columns or 'estado_reencauche' not in df_llantas.columns:
-        st.warning("⚠️ No se pueden cargar los datos de llantas correctamente")
+    if df_llantas.empty or 'disponibilidad' not in df_llantas.columns or 'estado_reencauche' not in df_llantas.columns:
+        st.warning("⚠️ No hay llantas registradas o no se pueden cargar los datos")
         return
 
-    llantas_disponibles = df_llantas[
-        (df_llantas['disponibilidad'].isin(['llanta_nueva', 'recambio'])) |
-        ((df_llantas['disponibilidad'] == 'reencauche') & (df_llantas['estado_reencauche'] == 'aprobado'))
-    ]
-    
-    if llantas_disponibles.empty:
-        st.warning("⚠️ No hay llantas disponibles para montaje")
-        return
-    
     col1, col2, col3 = st.columns(3)
-    
+
+    # PRIMERO: Seleccionar vehículo
     with col1:
-        id_llanta = st.selectbox(
-            "Seleccionar Llanta",
-            options=llantas_disponibles['id_llanta'].values,
-            format_func=lambda x: f"ID {x} - {llantas_disponibles[llantas_disponibles['id_llanta']==x]['marca_llanta'].values[0]} {llantas_disponibles[llantas_disponibles['id_llanta']==x]['dimension'].values[0]}"
-        )
-    
-    with col2:
         placa_vehiculo = st.selectbox(
-            "Seleccionar Vehículo",
-            options=df_vehiculos['placa_vehiculo'].values
+            "1️⃣ Seleccionar Vehículo",
+            options=df_vehiculos['placa_vehiculo'].values,
+            format_func=lambda x: f"{x} - {df_vehiculos[df_vehiculos['placa_vehiculo']==x]['marca'].values[0] if 'marca' in df_vehiculos.columns else ''}"
         )
-    
+
+    # Obtener el nit_cliente del vehículo seleccionado
+    vehiculo_seleccionado = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa_vehiculo]
+    nit_cliente_vehiculo = vehiculo_seleccionado['nit_cliente'].values[0] if not vehiculo_seleccionado.empty else None
+
+    # Filtrar llantas disponibles SOLO del mismo cliente que el vehículo
+    llantas_cliente = df_llantas[df_llantas['nit_cliente'] == nit_cliente_vehiculo]
+    llantas_disponibles = llantas_cliente[
+        (llantas_cliente['disponibilidad'].isin(['llanta_nueva', 'recambio'])) |
+        ((llantas_cliente['disponibilidad'] == 'reencauche') & (llantas_cliente['estado_reencauche'] == 'aprobado'))
+    ]
+
+    # SEGUNDO: Seleccionar llanta (filtrada por cliente del vehículo)
+    with col2:
+        if llantas_disponibles.empty:
+            st.warning(f"⚠️ No hay llantas disponibles para este cliente")
+            id_llanta = None
+        else:
+            id_llanta = st.selectbox(
+                "2️⃣ Seleccionar Llanta",
+                options=llantas_disponibles['id_llanta'].values,
+                format_func=lambda x: f"ID {x} - {llantas_disponibles[llantas_disponibles['id_llanta']==x]['marca_llanta'].values[0]} {llantas_disponibles[llantas_disponibles['id_llanta']==x]['dimension'].values[0]}"
+            )
+
     with col3:
-        posicion_inicial = st.text_input("Posición Inicial (ej: DI, DD, TI1, etc.)")
+        posicion_inicial = st.text_input("3️⃣ Posición (ej: DI, DD, TI1)")
     
     if st.button("🔧 Montar Llanta", type="primary"):
-        if not posicion_inicial:
+        if id_llanta is None:
+            st.error("No hay llantas disponibles para montar")
+        elif not posicion_inicial:
             st.error("Debes especificar la posición inicial")
         else:
             df_llantas = leer_hoja(SHEET_LLANTAS)
