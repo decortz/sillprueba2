@@ -617,28 +617,31 @@ def eliminar_corregir_datos():
             df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
             
             if not df_vehiculos.empty:
-                id_editar = st.selectbox("Seleccionar Vehículo", 
+                id_editar = st.selectbox("Seleccionar Vehículo",
                     df_vehiculos['id_vehiculo'].values,
-                    format_func=lambda x: f"ID {x} - {df_vehiculos[df_vehiculos['id_vehiculo']==x]['placa_vehiculo'].values[0]}")
+                    format_func=lambda x: f"ID {x} - {df_vehiculos[df_vehiculos['id_vehiculo']==x]['placa_vehiculo'].values[0]}",
+                    key="select_vehiculo_editar")
                 
                 vehiculo = df_vehiculos[df_vehiculos['id_vehiculo'] == id_editar].iloc[0]
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    nueva_marca = st.text_input("Marca", value=vehiculo.get('marca', ''))
-                    nuevo_estado = st.selectbox("Estado", 
+                    nueva_marca = st.text_input("Marca", value=vehiculo.get('marca', ''), key="edit_marca_vehiculo")
+                    nuevo_estado = st.selectbox("Estado",
                         options=['no_asignado', 'activo', 'fuera_de_servicio'],
-                        index=['no_asignado', 'activo', 'fuera_de_servicio'].index(vehiculo.get('estado', 'no_asignado')))
-                
+                        index=['no_asignado', 'activo', 'fuera_de_servicio'].index(vehiculo.get('estado', 'no_asignado')),
+                        key="edit_estado_vehiculo")
+
                 with col2:
-                    nueva_linea = st.text_input("Línea", value=vehiculo.get('linea', ''))
-                    nuevo_km_inicial = st.number_input("Kilometraje Inicial", value=float(vehiculo.get('kilometraje_inicial', 0)))
-                
+                    nueva_linea = st.text_input("Línea", value=vehiculo.get('linea', ''), key="edit_linea_vehiculo")
+                    nuevo_km_inicial = st.number_input("Kilometraje Inicial", value=float(vehiculo.get('kilometraje_inicial', 0)), key="edit_km_vehiculo")
+
                 with col3:
-                    nueva_tipologia = st.text_input("Tipología", value=vehiculo.get('tipologia', ''))
-                    nuevo_calculo = st.selectbox("Cálculo KMs", 
+                    nueva_tipologia = st.text_input("Tipología", value=vehiculo.get('tipologia', ''), key="edit_tipologia_vehiculo")
+                    nuevo_calculo = st.selectbox("Cálculo KMs",
                         options=['odometro', 'promedio', 'tabla'],
-                        index=['odometro', 'promedio', 'tabla'].index(vehiculo.get('calculo_kms', 'odometro')))
+                        index=['odometro', 'promedio', 'tabla'].index(vehiculo.get('calculo_kms', 'odometro')),
+                        key="edit_calculo_vehiculo")
                 
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
@@ -675,24 +678,24 @@ def eliminar_corregir_datos():
             df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
             
             if not df_llantas.empty:
-                id_editar = st.selectbox("Seleccionar Llanta", df_llantas['id_llanta'].values)
+                id_editar = st.selectbox("Seleccionar Llanta", df_llantas['id_llanta'].values, key="select_llanta_editar")
                 
                 llanta = df_llantas[df_llantas['id_llanta'] == id_editar].iloc[0]
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    nueva_marca = st.text_input("Marca", value=llanta.get('marca_llanta', ''))
-                    nueva_referencia = st.text_input("Referencia", value=llanta.get('referencia', ''))
-                
+                    nueva_marca = st.text_input("Marca", value=llanta.get('marca_llanta', ''), key="edit_marca_llanta")
+                    nueva_referencia = st.text_input("Referencia", value=llanta.get('referencia', ''), key="edit_referencia_llanta")
+
                 with col2:
-                    nueva_dimension = st.text_input("Dimensión", value=llanta.get('dimension', ''))
-                    precio_v1 = st.number_input("Precio Vida 1", value=float(llanta.get('precio_vida1', 0)))
-                
+                    nueva_dimension = st.text_input("Dimensión", value=llanta.get('dimension', ''), key="edit_dimension_llanta")
+                    precio_v1 = st.number_input("Precio Vida 1", value=float(llanta.get('precio_vida1', 0)), key="edit_precio_v1_llanta")
+
                 with col3:
-                    precio_v2 = st.number_input("Precio Vida 2", value=float(llanta.get('precio_vida2', 0)))
-                    precio_v3 = st.number_input("Precio Vida 3", value=float(llanta.get('precio_vida3', 0)))
-                
-                precio_v4 = st.number_input("Precio Vida 4", value=float(llanta.get('precio_vida4', 0)))
+                    precio_v2 = st.number_input("Precio Vida 2", value=float(llanta.get('precio_vida2', 0)), key="edit_precio_v2_llanta")
+                    precio_v3 = st.number_input("Precio Vida 3", value=float(llanta.get('precio_vida3', 0)), key="edit_precio_v3_llanta")
+
+                precio_v4 = st.number_input("Precio Vida 4", value=float(llanta.get('precio_vida4', 0)), key="edit_precio_v4_llanta")
                 
                 st.info("💡 Los costos/km se recalculan automáticamente al guardar cambios")
                 
@@ -729,7 +732,7 @@ def eliminar_corregir_datos():
         df_servicios = leer_hoja(SHEET_SERVICIOS)
 
         if not df_servicios.empty:
-            id_servicio_editar = st.selectbox("Seleccionar Servicio", df_servicios['id_servicio'].values)
+            id_servicio_editar = st.selectbox("Seleccionar Servicio", df_servicios['id_servicio'].values, key="select_servicio_editar")
 
             servicio = df_servicios[df_servicios['id_servicio'] == id_servicio_editar].iloc[0]
 
@@ -829,11 +832,11 @@ def eliminar_corregir_datos():
         df_clientes = leer_hoja(SHEET_CLIENTES)
         
         if not df_clientes.empty:
-            nit_editar = st.selectbox("Seleccionar Cliente", df_clientes['nit'].values)
+            nit_editar = st.selectbox("Seleccionar Cliente", df_clientes['nit'].values, key="select_cliente_editar")
             
             cliente = df_clientes[df_clientes['nit'] == nit_editar].iloc[0]
             
-            nuevo_nombre = st.text_input("Nombre Cliente", value=cliente['nombre_cliente'])
+            nuevo_nombre = st.text_input("Nombre Cliente", value=cliente['nombre_cliente'], key="edit_nombre_cliente")
             
             if st.button("💾 Guardar Cambios", key="guardar_cliente"):
                 df_clientes.loc[df_clientes['nit'] == nit_editar, 'nombre_cliente'] = nuevo_nombre
@@ -866,7 +869,8 @@ def eliminar_corregir_datos():
                 id_mov_editar = st.selectbox(
                     "Seleccionar Movimiento",
                     options=df_movimientos['id_movimiento'].values,
-                    format_func=lambda x: f"ID {x} - Llanta {df_movimientos[df_movimientos['id_movimiento']==x]['id_llanta'].values[0]} - {df_movimientos[df_movimientos['id_movimiento']==x]['tipo'].values[0]} ({df_movimientos[df_movimientos['id_movimiento']==x]['fecha'].values[0]})"
+                    format_func=lambda x: f"ID {x} - Llanta {df_movimientos[df_movimientos['id_movimiento']==x]['id_llanta'].values[0]} - {df_movimientos[df_movimientos['id_movimiento']==x]['tipo'].values[0]} ({df_movimientos[df_movimientos['id_movimiento']==x]['fecha'].values[0]})",
+                    key="select_movimiento_editar"
                 )
 
                 movimiento = df_movimientos[df_movimientos['id_movimiento'] == id_mov_editar].iloc[0]
@@ -883,6 +887,7 @@ def eliminar_corregir_datos():
 
                     # Vida
                     vida_mov = int(movimiento.get('vida', 1)) if pd.notna(movimiento.get('vida')) else 1
+                    vida_mov = max(1, vida_mov)  # Asegurar que sea al menos 1
                     nueva_vida = st.number_input("Vida", min_value=1, max_value=4, value=vida_mov, key="edit_vida_mov")
 
                 with col2:
