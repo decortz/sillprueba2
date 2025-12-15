@@ -169,6 +169,10 @@ def leer_hoja(nombre_hoja):
             return pd.DataFrame()
         # Eliminar filas completamente vacías
         df = df.dropna(how='all')
+        # Convertir columnas NIT a string (evitar decimales como 1234567890.0)
+        for col in ['nit', 'nit_cliente']:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else '')
         return df
     except Exception as e:
         st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
@@ -186,6 +190,10 @@ def leer_hoja_fresco(nombre_hoja):
         if df is None or df.empty:
             return pd.DataFrame()
         df = df.dropna(how='all')
+        # Convertir columnas NIT a string (evitar decimales como 1234567890.0)
+        for col in ['nit', 'nit_cliente']:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else '')
         return df
     except Exception as e:
         st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
@@ -208,6 +216,10 @@ def escribir_hoja(nombre_hoja, df):
         )
         if df_fresco is not None:
             df_fresco = df_fresco.dropna(how='all')
+            # Convertir columnas NIT a string (evitar decimales como 1234567890.0)
+            for col in ['nit', 'nit_cliente']:
+                if col in df_fresco.columns:
+                    df_fresco[col] = df_fresco[col].apply(lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else '')
         return df_fresco if df_fresco is not None else df
     except Exception as e:
         st.error(f"Error escribiendo en {nombre_hoja}: {str(e)}")
@@ -709,15 +721,95 @@ def eliminar_corregir_datos():
     with tab3:
         st.subheader("Gestión de Servicios")
         df_servicios = leer_hoja(SHEET_SERVICIOS)
-        
+
         if not df_servicios.empty:
             id_servicio_editar = st.selectbox("Seleccionar Servicio", df_servicios['id_servicio'].values)
-            
-            if st.button("🗑️ Eliminar Servicio", key="eliminar_servicio"):
-                df_servicios = df_servicios[df_servicios['id_servicio'] != id_servicio_editar]
-                escribir_hoja(SHEET_SERVICIOS, df_servicios)
-                st.success("✅ Servicio eliminado con éxito")
-                st.rerun()
+
+            servicio = df_servicios[df_servicios['id_servicio'] == id_servicio_editar].iloc[0]
+
+            st.write("**Datos del Servicio:**")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                # Fecha del servicio
+                fecha_actual = servicio.get('fecha', '')
+                try:
+                    fecha_parsed = datetime.strptime(str(fecha_actual), "%d/%m/%Y").date() if fecha_actual else datetime.now().date()
+                except:
+                    fecha_parsed = datetime.now().date()
+                nueva_fecha = st.date_input("Fecha", value=fecha_parsed, key="edit_fecha_servicio")
+
+                # Kilometraje
+                km_actual = int(servicio.get('kilometraje', 0)) if pd.notna(servicio.get('kilometraje')) else 0
+                nuevo_km = st.number_input("Kilometraje", min_value=0, value=km_actual, key="edit_km_servicio")
+
+            with col2:
+                st.write("**Profundidades (mm)**")
+                prof1_actual = float(servicio.get('profundidad_1', 10.0)) if pd.notna(servicio.get('profundidad_1')) else 10.0
+                prof2_actual = float(servicio.get('profundidad_2', 10.0)) if pd.notna(servicio.get('profundidad_2')) else 10.0
+                prof3_actual = float(servicio.get('profundidad_3', 10.0)) if pd.notna(servicio.get('profundidad_3')) else 10.0
+
+                nueva_prof1 = st.number_input("Profundidad 1", min_value=0.0, max_value=30.0, value=prof1_actual, step=0.5, key="edit_prof1")
+                nueva_prof2 = st.number_input("Profundidad 2", min_value=0.0, max_value=30.0, value=prof2_actual, step=0.5, key="edit_prof2")
+                nueva_prof3 = st.number_input("Profundidad 3", min_value=0.0, max_value=30.0, value=prof3_actual, step=0.5, key="edit_prof3")
+
+            with col3:
+                st.write("**Servicios Realizados**")
+                edit_rotacion = st.checkbox("Rotación", value=(servicio.get('rotacion', 'No') == 'Sí'), key="edit_rotacion")
+                if edit_rotacion:
+                    edit_pos_nueva = st.text_input("Nueva Posición", value=servicio.get('posicion_nueva', ''), key="edit_pos_nueva")
+                else:
+                    edit_pos_nueva = ""
+                edit_balanceo = st.checkbox("Balanceo", value=(servicio.get('balanceo', 'No') == 'Sí'), key="edit_balanceo")
+                edit_alineacion = st.checkbox("Alineación", value=(servicio.get('alineacion', 'No') == 'Sí'), key="edit_alineacion")
+                edit_regrabacion = st.checkbox("Regrabación", value=(servicio.get('regrabacion', 'No') == 'Sí'), key="edit_regrabacion")
+                edit_torqueo = st.checkbox("Torqueo", value=(servicio.get('torqueo', 'No') == 'Sí'), key="edit_torqueo")
+
+            # Comentario FVU (campo adicional)
+            comentario_actual = servicio.get('comentario_fvu', '') if pd.notna(servicio.get('comentario_fvu')) else ''
+            nuevo_comentario = st.text_area("Comentario FVU", value=comentario_actual, key="edit_comentario_fvu")
+
+            col_btn1, col_btn2 = st.columns(2)
+
+            with col_btn1:
+                if st.button("💾 Guardar Cambios", key="guardar_servicio", type="primary"):
+                    if edit_rotacion and not edit_pos_nueva:
+                        st.error("Si hay rotación, debes especificar la nueva posición")
+                    else:
+                        # Actualizar los campos editables
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'fecha'] = nueva_fecha.strftime("%d/%m/%Y")
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'kilometraje'] = nuevo_km
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_1'] = nueva_prof1
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_2'] = nueva_prof2
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_3'] = nueva_prof3
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'rotacion'] = 'Sí' if edit_rotacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'posicion_nueva'] = edit_pos_nueva if edit_rotacion else ''
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'balanceo'] = 'Sí' if edit_balanceo else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'alineacion'] = 'Sí' if edit_alineacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'regrabacion'] = 'Sí' if edit_regrabacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'torqueo'] = 'Sí' if edit_torqueo else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'comentario_fvu'] = nuevo_comentario
+
+                        escribir_hoja(SHEET_SERVICIOS, df_servicios)
+
+                        # Recalcular costos si cambió el kilometraje
+                        id_llanta_servicio = servicio.get('id_llanta')
+                        if id_llanta_servicio:
+                            actualizar_costos_km_llanta(id_llanta_servicio)
+
+                        st.success("✅ Servicio actualizado con éxito")
+                        st.rerun()
+
+            with col_btn2:
+                if st.button("🗑️ Eliminar Servicio", key="eliminar_servicio"):
+                    df_servicios = df_servicios[df_servicios['id_servicio'] != id_servicio_editar]
+                    escribir_hoja(SHEET_SERVICIOS, df_servicios)
+                    st.success("✅ Servicio eliminado con éxito")
+                    st.rerun()
+
+            # Mostrar información de referencia
+            st.divider()
+            st.caption(f"ID Llanta: {servicio.get('id_llanta', 'N/A')} | Placa: {servicio.get('placa_vehiculo', 'N/A')} | Posición original: {servicio.get('posicion', 'N/A')} | Vida: {servicio.get('vida', 'N/A')}")
         else:
             st.info("No hay servicios registrados")
     
@@ -1220,18 +1312,16 @@ def crear_llantas():
             )
             marca_llanta = st.text_input("Marca de Llanta")
             referencia = st.text_input("Diseño (ej: XZA2)")
-        
+
         with col2:
             dimension = st.text_input("Dimensión (ej: 295/80R22.5)")
             max_id = df_llantas['id_llanta'].max() if not df_llantas.empty and 'id_llanta' in df_llantas.columns else 0
-            id_llanta = st.number_input("ID Llanta", min_value=int(max_id)+1, value=int(max_id)+1)
+            id_llanta = st.number_input("ID Llanta", min_value=1, value=int(max_id)+1 if pd.notna(max_id) else 1)
             precio_vida1 = st.number_input("Precio Vida 1 (Nueva)", min_value=0.0, value=1500000.0, step=10000.0)
-        
+
         with col3:
-            precio_vida2 = st.number_input("Precio Vida 2 (1er Reenc.)", min_value=0.0, value=450000.0, step=10000.0)
-            precio_vida3 = st.number_input("Precio Vida 3 (2do Reenc.)", min_value=0.0, value=450000.0, step=10000.0)
-            precio_vida4 = st.number_input("Precio Vida 4 (3er Reenc.)", min_value=0.0, value=450000.0, step=10000.0)
-        
+            st.info("💡 Los precios de reencauche (Vida 2, 3, 4) se registran al momento de aprobar cada reencauche")
+
         if st.button("💾 Registrar Llanta", type="primary"):
             if not dimension or not referencia or not marca_llanta:
                 st.error("Debes completar todos los campos")
@@ -1244,32 +1334,30 @@ def crear_llantas():
                 else:
                     nueva_llanta = pd.DataFrame([{
                         'id_llanta': id_llanta,
-                        'nit_cliente': cliente_seleccionado,
+                        'nit_cliente': str(cliente_seleccionado),
                         'marca_llanta': marca_llanta,
                         'referencia': referencia,
                         'dimension': dimension,
+                        'vida_actual': 1,
                         'disponibilidad': 'llanta_nueva',
-                        'placa_vehiculo': '',
-                        'pos_inicial': '',
-                        'pos_final': '',
+                        'placa_actual': '',
+                        'posicion_actual': '',
                         'estado_reencauche': '',
-                        'reencauche1': '',
-                        'reencauche2': '',
-                        'reencauche3': '',
-                        'reencauche4': '',
-                        'vida': 0,
                         'precio_vida1': precio_vida1,
-                        'precio_vida2': precio_vida2,
-                        'precio_vida3': precio_vida3,
-                        'precio_vida4': precio_vida4,
-                        'costo_km_vida1': None,
-                        'costo_km_vida2': None,
-                        'costo_km_vida3': None,
-                        'costo_km_vida4': None,
+                        'reencauche1': '',
+                        'precio_vida2': 0,
+                        'reencauche2': '',
+                        'precio_vida3': 0,
+                        'reencauche3': '',
+                        'precio_vida4': 0,
+                        'costo_km_vida1': 0,
+                        'costo_km_vida2': 0,
+                        'costo_km_vida3': 0,
+                        'costo_km_vida4': 0,
                         'fecha_creacion': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'fecha_modificacion': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }])
-                    
+
                     df_llantas = pd.concat([df_llantas, nueva_llanta], ignore_index=True)
                     escribir_hoja(SHEET_LLANTAS, df_llantas)
                     st.success("✅ Dato creado con éxito")
