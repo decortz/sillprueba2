@@ -1319,9 +1319,6 @@ def crear_llantas():
             id_llanta = st.number_input("ID Llanta", min_value=1, value=int(max_id)+1 if pd.notna(max_id) else 1)
             precio_vida1 = st.number_input("Precio Vida 1 (Nueva)", min_value=0.0, value=1500000.0, step=10000.0)
 
-        with col3:
-            st.info("💡 Los precios de reencauche (Vida 2, 3, 4) se registran al momento de aprobar cada reencauche")
-
         if st.button("💾 Registrar Llanta", type="primary"):
             if not dimension or not referencia or not marca_llanta:
                 st.error("Debes completar todos los campos")
