@@ -2242,10 +2242,10 @@ def gestion_usuarios():
         
         st.info("""
         **Niveles de Usuario:**
-        - **Nivel 1 (Administrador)**: Acceso total al sistema (todos los clientes)
-        - **Nivel 2 (Supervisor)**: Gestión de clientes, vehículos, llantas y desmontajes (solo clientes asignados)
-        - **Nivel 3 (Operario)**: Registro de servicios y montajes (solo clientes asignados)
-        - **Nivel 4 (Admin Cliente)**: Administrador con acceso solo a clientes asignados
+        - **Nivel 1 (Administrador)**: Acceso total al sistema
+        - **Nivel 2 (Supervisor)**: Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)
+        - **Nivel 3 (Operario)**: Llantas, Montaje, Servicios, Desmontaje, Reportes - Solo registrar, NO editar (solo clientes asignados)
+        - **Nivel 4 (Admin Cliente)**: Clientes, Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar (solo clientes asignados)
         """)
 
     with tab3:
@@ -2367,23 +2367,63 @@ def main():
         st.divider()
         
         st.subheader("¿Qué quieres hacer hoy?")
-        
-        opciones_menu = {
-            "👤 Gestión de Clientes": "clientes",
-            "🚛 Gestión de Vehículos": "vehiculos",
-            "⚙️ Gestión de Llantas": "llantas",
-            "🔍 Estado de Llantas": "estado_llantas",
-            "🔧 Montaje de Llantas": "montaje",
-            "🛠️ Registro de Servicios": "servicios",
-            "🔽 Desmontaje de Llantas": "desmontaje",
-            "📊 Reportes y Análisis": "reportes",
-            "📤 Subir Datos CSV": "subir_csv",
-            "✏️ Editar/Eliminar Datos": "editar_datos"
-        }
-        
-        if st.session_state['nivel'] == 1:
-            opciones_menu["👥 Gestión de Usuarios"] = "usuarios"
-        
+
+        nivel_usuario = st.session_state['nivel']
+
+        # Menú base para todos los usuarios
+        opciones_menu = {}
+
+        # Nivel 1 (Admin): Acceso total
+        if nivel_usuario == 1:
+            opciones_menu = {
+                "👤 Gestión de Clientes": "clientes",
+                "🚛 Gestión de Vehículos": "vehiculos",
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes",
+                "📤 Subir Datos CSV": "subir_csv",
+                "✏️ Editar/Eliminar Datos": "editar_datos",
+                "👥 Gestión de Usuarios": "usuarios"
+            }
+        # Nivel 2 (Supervisor): Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar
+        elif nivel_usuario == 2:
+            opciones_menu = {
+                "🚛 Gestión de Vehículos": "vehiculos",
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes",
+                "✏️ Editar/Eliminar Datos": "editar_datos"
+            }
+        # Nivel 3 (Operario): Llantas, Montaje, Servicios, Desmontaje, Reportes (solo ver, no editar)
+        elif nivel_usuario == 3:
+            opciones_menu = {
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes"
+            }
+        # Nivel 4 (Admin Cliente): Todo excepto usuarios y subir CSV
+        elif nivel_usuario == 4:
+            opciones_menu = {
+                "👤 Gestión de Clientes": "clientes",
+                "🚛 Gestión de Vehículos": "vehiculos",
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes",
+                "✏️ Editar/Eliminar Datos": "editar_datos"
+            }
+
         opcion = st.radio("Menú Principal", list(opciones_menu.keys()), label_visibility="collapsed")
         
         st.divider()
@@ -2396,13 +2436,13 @@ def main():
         
         with st.expander("ℹ️ Información de Permisos"):
             if st.session_state['nivel'] == 1:
-                st.success("✅ Acceso Total")
+                st.success("✅ Acceso Total al Sistema")
             elif st.session_state['nivel'] == 2:
-                st.info("✅ Gestión y Supervisión\n❌ Gestión de Usuarios")
+                st.info("✅ Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos\n❌ Clientes, Subir CSV, Usuarios")
             elif st.session_state['nivel'] == 3:
-                st.warning("✅ Operaciones\n❌ Gestión Administrativa")
+                st.warning("✅ Llantas, Montaje, Servicios, Desmontaje, Reportes (solo registrar)\n❌ Vehículos, Clientes, Editar datos")
             elif st.session_state['nivel'] == 4:
-                st.info("✅ Administración de Clientes Asignados\n❌ Acceso a otros clientes")
+                st.info("✅ Todo excepto Usuarios y Subir CSV (solo clientes asignados)")
         
         st.divider()
         
