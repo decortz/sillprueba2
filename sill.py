@@ -888,6 +888,9 @@ def eliminar_corregir_datos():
                     # Vida
                     vida_mov = int(movimiento.get('vida', 1)) if pd.notna(movimiento.get('vida')) else 1
                     vida_mov = max(1, vida_mov)  # Asegurar que sea al menos 1
+                    # Limpiar session_state si tiene valor inválido
+                    if 'edit_vida_mov' in st.session_state and st.session_state['edit_vida_mov'] < 1:
+                        del st.session_state['edit_vida_mov']
                     nueva_vida = st.number_input("Vida", min_value=1, max_value=4, value=vida_mov, key="edit_vida_mov")
 
                 with col2:
