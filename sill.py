@@ -606,7 +606,7 @@ def eliminar_corregir_datos():
     if not verificar_permiso(2):
         return
     
-    tab1, tab2, tab3, tab4 = st.tabs(["🚛 Vehículos", "⚙️ Llantas", "🛠️ Servicios", "👤 Clientes"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🚛 Vehículos", "⚙️ Llantas", "🛠️ Servicios", "👤 Clientes", "📦 Movimientos"])
     
     with tab1:
         st.subheader("Gestión de Vehículos")
@@ -848,6 +848,115 @@ def eliminar_corregir_datos():
                 st.rerun()
         else:
             st.info("No hay clientes registrados")
+
+    with tab5:
+        st.subheader("Gestión de Movimientos")
+
+        df_movimientos = leer_hoja(SHEET_MOVIMIENTOS)
+
+        if not df_movimientos.empty:
+            # Filtrar por clientes accesibles
+            clientes_acceso = obtener_clientes_accesibles()
+            if st.session_state.get('nivel') != 1:
+                df_llantas_temp = leer_hoja(SHEET_LLANTAS)
+                llantas_cliente = df_llantas_temp[df_llantas_temp['nit_cliente'].isin(clientes_acceso)]['id_llanta'].tolist()
+                df_movimientos = df_movimientos[df_movimientos['id_llanta'].isin(llantas_cliente)]
+
+            if not df_movimientos.empty:
+                id_mov_editar = st.selectbox(
+                    "Seleccionar Movimiento",
+                    options=df_movimientos['id_movimiento'].values,
+                    format_func=lambda x: f"ID {x} - Llanta {df_movimientos[df_movimientos['id_movimiento']==x]['id_llanta'].values[0]} - {df_movimientos[df_movimientos['id_movimiento']==x]['tipo'].values[0]} ({df_movimientos[df_movimientos['id_movimiento']==x]['fecha'].values[0]})"
+                )
+
+                movimiento = df_movimientos[df_movimientos['id_movimiento'] == id_mov_editar].iloc[0]
+
+                st.write("**Datos del Movimiento:**")
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    # Tipo de movimiento
+                    tipos_mov = ['montaje', 'desmontaje', 'aprobacion_reencauche', 'rotacion', 'otro']
+                    tipo_actual = movimiento.get('tipo', 'otro')
+                    tipo_idx = tipos_mov.index(tipo_actual) if tipo_actual in tipos_mov else 4
+                    nuevo_tipo = st.selectbox("Tipo", options=tipos_mov, index=tipo_idx, key="edit_tipo_mov")
+
+                    # Vida
+                    vida_mov = int(movimiento.get('vida', 1)) if pd.notna(movimiento.get('vida')) else 1
+                    nueva_vida = st.number_input("Vida", min_value=1, max_value=4, value=vida_mov, key="edit_vida_mov")
+
+                with col2:
+                    # Placa vehículo
+                    placa_mov = movimiento.get('placa_vehiculo', '') if pd.notna(movimiento.get('placa_vehiculo')) else ''
+                    nueva_placa = st.text_input("Placa Vehículo", value=placa_mov, key="edit_placa_mov")
+
+                    # Posición
+                    pos_mov = movimiento.get('posicion', '') if pd.notna(movimiento.get('posicion')) else ''
+                    nueva_posicion = st.text_input("Posición", value=pos_mov, key="edit_pos_mov")
+
+                with col3:
+                    # Kilometraje
+                    km_mov = int(movimiento.get('kilometraje', 0)) if pd.notna(movimiento.get('kilometraje')) else 0
+                    nuevo_km = st.number_input("Kilometraje", min_value=0, value=km_mov, key="edit_km_mov")
+
+                    # Nueva disponibilidad
+                    disp_mov = movimiento.get('nueva_disponibilidad', '') if pd.notna(movimiento.get('nueva_disponibilidad')) else ''
+                    nueva_disp = st.text_input("Nueva Disponibilidad", value=disp_mov, key="edit_disp_mov")
+
+                # Datos de reencauche (si aplica)
+                st.write("**Datos de Reencauche (si aplica):**")
+                col4, col5, col6 = st.columns(3)
+
+                with col4:
+                    marca_reenc = movimiento.get('marca_reencauche', '') if pd.notna(movimiento.get('marca_reencauche')) else ''
+                    nueva_marca_reenc = st.text_input("Marca Reencauche", value=marca_reenc, key="edit_marca_reenc")
+
+                with col5:
+                    ref_reenc = movimiento.get('ref_reencauche', '') if pd.notna(movimiento.get('ref_reencauche')) else ''
+                    nueva_ref_reenc = st.text_input("Ref. Reencauche", value=ref_reenc, key="edit_ref_reenc")
+
+                with col6:
+                    precio_reenc = float(movimiento.get('precio_reencauche', 0)) if pd.notna(movimiento.get('precio_reencauche')) else 0
+                    nuevo_precio_reenc = st.number_input("Precio Reencauche", min_value=0.0, value=precio_reenc, key="edit_precio_reenc")
+
+                # Observaciones
+                obs_mov = movimiento.get('observaciones', '') if pd.notna(movimiento.get('observaciones')) else ''
+                nuevas_obs = st.text_area("Observaciones", value=obs_mov, key="edit_obs_mov")
+
+                col_btn1, col_btn2 = st.columns(2)
+
+                with col_btn1:
+                    if st.button("💾 Guardar Cambios", key="guardar_movimiento", type="primary"):
+                        df_mov_todos = leer_hoja(SHEET_MOVIMIENTOS)
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'tipo'] = nuevo_tipo
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'vida'] = nueva_vida
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'placa_vehiculo'] = nueva_placa
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'posicion'] = nueva_posicion
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'kilometraje'] = nuevo_km
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'nueva_disponibilidad'] = nueva_disp
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'marca_reencauche'] = nueva_marca_reenc
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'ref_reencauche'] = nueva_ref_reenc
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'precio_reencauche'] = nuevo_precio_reenc
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'observaciones'] = nuevas_obs
+                        escribir_hoja(SHEET_MOVIMIENTOS, df_mov_todos)
+                        st.success("✅ Movimiento actualizado con éxito")
+                        st.rerun()
+
+                with col_btn2:
+                    if st.button("🗑️ Eliminar Movimiento", key="eliminar_movimiento"):
+                        df_mov_todos = leer_hoja(SHEET_MOVIMIENTOS)
+                        df_mov_todos = df_mov_todos[df_mov_todos['id_movimiento'] != id_mov_editar]
+                        escribir_hoja(SHEET_MOVIMIENTOS, df_mov_todos)
+                        st.success("✅ Movimiento eliminado con éxito")
+                        st.rerun()
+
+                # Mostrar información de referencia
+                st.divider()
+                st.caption(f"ID Llanta: {movimiento.get('id_llanta', 'N/A')} | Fecha: {movimiento.get('fecha', 'N/A')} | Usuario: {movimiento.get('usuario', 'N/A')}")
+            else:
+                st.info("No tienes movimientos accesibles")
+        else:
+            st.info("No hay movimientos registrados")
 
 # ============= FUNCIÓN: LLANTAS DISPONIBLES =============
 def ver_llantas_disponibles():
