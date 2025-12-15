@@ -454,8 +454,9 @@ def obtener_clientes_accesibles():
     # Niveles 2, 3 y 4 solo ven clientes asignados
     if nivel in [2, 3, 4]:
         clientes_asignados = st.session_state.get('clientes_asignados', '')
-        if clientes_asignados:
-            return [c.strip() for c in clientes_asignados.split(',')]
+        # Asegurar que sea string válido (puede ser NaN, None, float)
+        if clientes_asignados and pd.notna(clientes_asignados) and isinstance(clientes_asignados, str):
+            return [c.strip() for c in clientes_asignados.split(',') if c.strip()]
         return []
 
     return []
@@ -888,6 +889,9 @@ def eliminar_corregir_datos():
                     # Vida
                     vida_mov = int(movimiento.get('vida', 1)) if pd.notna(movimiento.get('vida')) else 1
                     vida_mov = max(1, vida_mov)  # Asegurar que sea al menos 1
+                    # Limpiar session_state si tiene valor inválido
+                    if 'edit_vida_mov' in st.session_state and st.session_state['edit_vida_mov'] < 1:
+                        del st.session_state['edit_vida_mov']
                     nueva_vida = st.number_input("Vida", min_value=1, max_value=4, value=vida_mov, key="edit_vida_mov")
 
                 with col2:
@@ -1207,8 +1211,8 @@ def crear_cliente():
     
     st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
     st.header("👤 Gestión de Clientes")
-    
-    if not verificar_permiso(2):
+
+    if not verificar_permiso(1):  # Solo Administrador puede crear clientes
         return
     
     tab1, tab2 = st.tabs(["➕ Crear Cliente", "📋 Ver Clientes"])
@@ -2154,8 +2158,8 @@ def gestion_usuarios():
     if not verificar_permiso(1):
         return
     
-    tab1, tab2 = st.tabs(["➕ Crear Usuario", "📋 Ver Usuarios"])
-    
+    tab1, tab2, tab3 = st.tabs(["➕ Crear Usuario", "📋 Ver Usuarios", "✏️ Editar/Eliminar"])
+
     with tab1:
         st.subheader("Crear Nuevo Usuario")
         
@@ -2235,11 +2239,103 @@ def gestion_usuarios():
         
         st.info("""
         **Niveles de Usuario:**
-        - **Nivel 1 (Administrador)**: Acceso total al sistema (todos los clientes)
-        - **Nivel 2 (Supervisor)**: Gestión de clientes, vehículos, llantas y desmontajes (solo clientes asignados)
-        - **Nivel 3 (Operario)**: Registro de servicios y montajes (solo clientes asignados)
-        - **Nivel 4 (Admin Cliente)**: Administrador con acceso solo a clientes asignados
+        - **Nivel 1 (Administrador)**: Acceso total al sistema
+        - **Nivel 2 (Supervisor)**: Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)
+        - **Nivel 3 (Operario)**: Llantas, Montaje, Servicios, Desmontaje, Reportes - Solo registrar, NO editar (solo clientes asignados)
+        - **Nivel 4 (Admin Cliente)**: Clientes, Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar (solo clientes asignados)
         """)
+
+    with tab3:
+        st.subheader("Editar o Eliminar Usuario")
+
+        df_usuarios = leer_hoja(SHEET_USUARIOS)
+        df_clientes = leer_hoja(SHEET_CLIENTES)
+
+        if not df_usuarios.empty:
+            usuario_editar = st.selectbox(
+                "Seleccionar Usuario",
+                options=df_usuarios['usuario'].values,
+                format_func=lambda x: f"{df_usuarios[df_usuarios['usuario']==x]['nombre'].values[0]} ({x}) - Nivel {df_usuarios[df_usuarios['usuario']==x]['nivel'].values[0]}",
+                key="select_usuario_editar"
+            )
+
+            usuario_data = df_usuarios[df_usuarios['usuario'] == usuario_editar].iloc[0]
+
+            # No permitir editar el propio usuario admin que está logueado
+            if usuario_editar == st.session_state.get('usuario'):
+                st.warning("⚠️ No puedes editar tu propio usuario mientras estás conectado")
+            else:
+                st.write("**Datos del Usuario:**")
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    edit_nombre = st.text_input("Nombre Completo", value=usuario_data.get('nombre', ''), key="edit_nombre_usuario")
+                    edit_password = st.text_input("Nueva Contraseña (dejar vacío para mantener)", type="password", key="edit_password_usuario")
+
+                with col2:
+                    niveles = [1, 2, 3, 4]
+                    nivel_actual = int(usuario_data.get('nivel', 3)) if pd.notna(usuario_data.get('nivel')) else 3
+                    nivel_idx = niveles.index(nivel_actual) if nivel_actual in niveles else 2
+                    edit_nivel = st.selectbox(
+                        "Nivel de Acceso",
+                        options=niveles,
+                        index=nivel_idx,
+                        format_func=lambda x: f"Nivel {x} - {'Administrador' if x==1 else 'Supervisor' if x==2 else 'Operario' if x==3 else 'Admin Cliente'}",
+                        key="edit_nivel_usuario"
+                    )
+
+                # Asignar clientes si el nivel lo requiere
+                edit_clientes = ""
+                if edit_nivel in [2, 3, 4]:
+                    nivel_nombre = 'Supervisor' if edit_nivel == 2 else 'Operario' if edit_nivel == 3 else 'Admin Cliente'
+                    st.write(f"**Asignar Clientes para {nivel_nombre}**")
+                    if not df_clientes.empty:
+                        # Obtener clientes actuales asignados
+                        clientes_actuales = []
+                        clientes_asignados_str = usuario_data.get('clientes_asignados', '')
+                        if clientes_asignados_str and pd.notna(clientes_asignados_str) and isinstance(clientes_asignados_str, str):
+                            clientes_actuales = [c.strip() for c in clientes_asignados_str.split(',') if c.strip()]
+
+                        clientes_opciones_edit = st.multiselect(
+                            "Seleccionar Clientes",
+                            options=df_clientes['nit'].values,
+                            default=[c for c in clientes_actuales if c in df_clientes['nit'].values],
+                            format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}",
+                            key="edit_clientes_usuario"
+                        )
+                        edit_clientes = ','.join([str(c) for c in clientes_opciones_edit])
+
+                col_btn1, col_btn2 = st.columns(2)
+
+                with col_btn1:
+                    if st.button("💾 Guardar Cambios", key="guardar_usuario", type="primary"):
+                        if not edit_nombre:
+                            st.error("El nombre no puede estar vacío")
+                        elif edit_nivel in [2, 3, 4] and not edit_clientes:
+                            st.error("Debes asignar al menos un cliente para este nivel")
+                        else:
+                            df_todos = leer_hoja(SHEET_USUARIOS)
+                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'nombre'] = edit_nombre
+                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'nivel'] = edit_nivel
+                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'clientes_asignados'] = edit_clientes
+
+                            # Solo actualizar contraseña si se proporcionó una nueva
+                            if edit_password:
+                                df_todos.loc[df_todos['usuario'] == usuario_editar, 'password'] = edit_password
+
+                            escribir_hoja(SHEET_USUARIOS, df_todos)
+                            st.success("✅ Usuario actualizado con éxito")
+                            st.rerun()
+
+                with col_btn2:
+                    if st.button("🗑️ Eliminar Usuario", key="eliminar_usuario"):
+                        df_todos = leer_hoja(SHEET_USUARIOS)
+                        df_todos = df_todos[df_todos['usuario'] != usuario_editar]
+                        escribir_hoja(SHEET_USUARIOS, df_todos)
+                        st.success("✅ Usuario eliminado con éxito")
+                        st.rerun()
+        else:
+            st.info("No hay usuarios registrados")
 
 def main():
     """Función principal del sistema"""
@@ -2268,23 +2364,63 @@ def main():
         st.divider()
         
         st.subheader("¿Qué quieres hacer hoy?")
-        
-        opciones_menu = {
-            "👤 Gestión de Clientes": "clientes",
-            "🚛 Gestión de Vehículos": "vehiculos",
-            "⚙️ Gestión de Llantas": "llantas",
-            "🔍 Estado de Llantas": "estado_llantas",
-            "🔧 Montaje de Llantas": "montaje",
-            "🛠️ Registro de Servicios": "servicios",
-            "🔽 Desmontaje de Llantas": "desmontaje",
-            "📊 Reportes y Análisis": "reportes",
-            "📤 Subir Datos CSV": "subir_csv",
-            "✏️ Editar/Eliminar Datos": "editar_datos"
-        }
-        
-        if st.session_state['nivel'] == 1:
-            opciones_menu["👥 Gestión de Usuarios"] = "usuarios"
-        
+
+        nivel_usuario = st.session_state['nivel']
+
+        # Menú base para todos los usuarios
+        opciones_menu = {}
+
+        # Nivel 1 (Admin): Acceso total
+        if nivel_usuario == 1:
+            opciones_menu = {
+                "👤 Gestión de Clientes": "clientes",
+                "🚛 Gestión de Vehículos": "vehiculos",
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes",
+                "📤 Subir Datos CSV": "subir_csv",
+                "✏️ Editar/Eliminar Datos": "editar_datos",
+                "👥 Gestión de Usuarios": "usuarios"
+            }
+        # Nivel 2 (Supervisor): Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar
+        elif nivel_usuario == 2:
+            opciones_menu = {
+                "🚛 Gestión de Vehículos": "vehiculos",
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes",
+                "✏️ Editar/Eliminar Datos": "editar_datos"
+            }
+        # Nivel 3 (Operario): Llantas, Montaje, Servicios, Desmontaje, Reportes (solo ver, no editar)
+        elif nivel_usuario == 3:
+            opciones_menu = {
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes"
+            }
+        # Nivel 4 (Admin Cliente): Todo excepto usuarios y subir CSV
+        elif nivel_usuario == 4:
+            opciones_menu = {
+                "👤 Gestión de Clientes": "clientes",
+                "🚛 Gestión de Vehículos": "vehiculos",
+                "⚙️ Gestión de Llantas": "llantas",
+                "🔍 Estado de Llantas": "estado_llantas",
+                "🔧 Montaje de Llantas": "montaje",
+                "🛠️ Registro de Servicios": "servicios",
+                "🔽 Desmontaje de Llantas": "desmontaje",
+                "📊 Reportes y Análisis": "reportes",
+                "✏️ Editar/Eliminar Datos": "editar_datos"
+            }
+
         opcion = st.radio("Menú Principal", list(opciones_menu.keys()), label_visibility="collapsed")
         
         st.divider()
@@ -2297,13 +2433,13 @@ def main():
         
         with st.expander("ℹ️ Información de Permisos"):
             if st.session_state['nivel'] == 1:
-                st.success("✅ Acceso Total")
+                st.success("✅ Acceso Total al Sistema")
             elif st.session_state['nivel'] == 2:
-                st.info("✅ Gestión y Supervisión\n❌ Gestión de Usuarios")
+                st.info("✅ Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos\n❌ Clientes, Subir CSV, Usuarios")
             elif st.session_state['nivel'] == 3:
-                st.warning("✅ Operaciones\n❌ Gestión Administrativa")
+                st.warning("✅ Llantas, Montaje, Servicios, Desmontaje, Reportes (solo registrar)\n❌ Vehículos, Clientes, Editar datos")
             elif st.session_state['nivel'] == 4:
-                st.info("✅ Administración de Clientes Asignados\n❌ Acceso a otros clientes")
+                st.info("✅ Todo excepto Usuarios y Subir CSV (solo clientes asignados)")
         
         st.divider()
         
