@@ -454,8 +454,9 @@ def obtener_clientes_accesibles():
     # Niveles 2, 3 y 4 solo ven clientes asignados
     if nivel in [2, 3, 4]:
         clientes_asignados = st.session_state.get('clientes_asignados', '')
-        if clientes_asignados:
-            return [c.strip() for c in clientes_asignados.split(',')]
+        # Asegurar que sea string válido (puede ser NaN, None, float)
+        if clientes_asignados and pd.notna(clientes_asignados) and isinstance(clientes_asignados, str):
+            return [c.strip() for c in clientes_asignados.split(',') if c.strip()]
         return []
 
     return []
@@ -1210,8 +1211,8 @@ def crear_cliente():
     
     st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
     st.header("👤 Gestión de Clientes")
-    
-    if not verificar_permiso(2):
+
+    if not verificar_permiso(1):  # Solo Administrador puede crear clientes
         return
     
     tab1, tab2 = st.tabs(["➕ Crear Cliente", "📋 Ver Clientes"])
@@ -2160,8 +2161,8 @@ def gestion_usuarios():
     if not verificar_permiso(1):
         return
     
-    tab1, tab2 = st.tabs(["➕ Crear Usuario", "📋 Ver Usuarios"])
-    
+    tab1, tab2, tab3 = st.tabs(["➕ Crear Usuario", "📋 Ver Usuarios", "✏️ Editar/Eliminar"])
+
     with tab1:
         st.subheader("Crear Nuevo Usuario")
         
@@ -2246,6 +2247,98 @@ def gestion_usuarios():
         - **Nivel 3 (Operario)**: Registro de servicios y montajes (solo clientes asignados)
         - **Nivel 4 (Admin Cliente)**: Administrador con acceso solo a clientes asignados
         """)
+
+    with tab3:
+        st.subheader("Editar o Eliminar Usuario")
+
+        df_usuarios = leer_hoja(SHEET_USUARIOS)
+        df_clientes = leer_hoja(SHEET_CLIENTES)
+
+        if not df_usuarios.empty:
+            usuario_editar = st.selectbox(
+                "Seleccionar Usuario",
+                options=df_usuarios['usuario'].values,
+                format_func=lambda x: f"{df_usuarios[df_usuarios['usuario']==x]['nombre'].values[0]} ({x}) - Nivel {df_usuarios[df_usuarios['usuario']==x]['nivel'].values[0]}",
+                key="select_usuario_editar"
+            )
+
+            usuario_data = df_usuarios[df_usuarios['usuario'] == usuario_editar].iloc[0]
+
+            # No permitir editar el propio usuario admin que está logueado
+            if usuario_editar == st.session_state.get('usuario'):
+                st.warning("⚠️ No puedes editar tu propio usuario mientras estás conectado")
+            else:
+                st.write("**Datos del Usuario:**")
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    edit_nombre = st.text_input("Nombre Completo", value=usuario_data.get('nombre', ''), key="edit_nombre_usuario")
+                    edit_password = st.text_input("Nueva Contraseña (dejar vacío para mantener)", type="password", key="edit_password_usuario")
+
+                with col2:
+                    niveles = [1, 2, 3, 4]
+                    nivel_actual = int(usuario_data.get('nivel', 3)) if pd.notna(usuario_data.get('nivel')) else 3
+                    nivel_idx = niveles.index(nivel_actual) if nivel_actual in niveles else 2
+                    edit_nivel = st.selectbox(
+                        "Nivel de Acceso",
+                        options=niveles,
+                        index=nivel_idx,
+                        format_func=lambda x: f"Nivel {x} - {'Administrador' if x==1 else 'Supervisor' if x==2 else 'Operario' if x==3 else 'Admin Cliente'}",
+                        key="edit_nivel_usuario"
+                    )
+
+                # Asignar clientes si el nivel lo requiere
+                edit_clientes = ""
+                if edit_nivel in [2, 3, 4]:
+                    nivel_nombre = 'Supervisor' if edit_nivel == 2 else 'Operario' if edit_nivel == 3 else 'Admin Cliente'
+                    st.write(f"**Asignar Clientes para {nivel_nombre}**")
+                    if not df_clientes.empty:
+                        # Obtener clientes actuales asignados
+                        clientes_actuales = []
+                        clientes_asignados_str = usuario_data.get('clientes_asignados', '')
+                        if clientes_asignados_str and pd.notna(clientes_asignados_str) and isinstance(clientes_asignados_str, str):
+                            clientes_actuales = [c.strip() for c in clientes_asignados_str.split(',') if c.strip()]
+
+                        clientes_opciones_edit = st.multiselect(
+                            "Seleccionar Clientes",
+                            options=df_clientes['nit'].values,
+                            default=[c for c in clientes_actuales if c in df_clientes['nit'].values],
+                            format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}",
+                            key="edit_clientes_usuario"
+                        )
+                        edit_clientes = ','.join([str(c) for c in clientes_opciones_edit])
+
+                col_btn1, col_btn2 = st.columns(2)
+
+                with col_btn1:
+                    if st.button("💾 Guardar Cambios", key="guardar_usuario", type="primary"):
+                        if not edit_nombre:
+                            st.error("El nombre no puede estar vacío")
+                        elif edit_nivel in [2, 3, 4] and not edit_clientes:
+                            st.error("Debes asignar al menos un cliente para este nivel")
+                        else:
+                            df_todos = leer_hoja(SHEET_USUARIOS)
+                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'nombre'] = edit_nombre
+                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'nivel'] = edit_nivel
+                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'clientes_asignados'] = edit_clientes
+
+                            # Solo actualizar contraseña si se proporcionó una nueva
+                            if edit_password:
+                                df_todos.loc[df_todos['usuario'] == usuario_editar, 'password'] = edit_password
+
+                            escribir_hoja(SHEET_USUARIOS, df_todos)
+                            st.success("✅ Usuario actualizado con éxito")
+                            st.rerun()
+
+                with col_btn2:
+                    if st.button("🗑️ Eliminar Usuario", key="eliminar_usuario"):
+                        df_todos = leer_hoja(SHEET_USUARIOS)
+                        df_todos = df_todos[df_todos['usuario'] != usuario_editar]
+                        escribir_hoja(SHEET_USUARIOS, df_todos)
+                        st.success("✅ Usuario eliminado con éxito")
+                        st.rerun()
+        else:
+            st.info("No hay usuarios registrados")
 
 def main():
     """Función principal del sistema"""
