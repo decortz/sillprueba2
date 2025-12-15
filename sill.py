@@ -360,7 +360,8 @@ def calcular_costo_km_acumulado(id_llanta):
             return None
         
         # Sumar todos los precios de vidas que se han usado
-        vida_actual = int(llanta.iloc[0].get('vida', 0))
+        vida_val = llanta.iloc[0].get('vida_actual', llanta.iloc[0].get('vida', 1))
+        vida_actual = int(vida_val) if pd.notna(vida_val) else 1
         precio_total = 0
         
         for v in range(1, vida_actual + 2):  # +2 porque vida 0 = nueva (vida1)
@@ -401,8 +402,9 @@ def actualizar_costos_km_llanta(id_llanta):
         if llanta.empty:
             return False
         
-        vida_actual = int(llanta.iloc[0].get('vida', 0))
-        
+        vida_val = llanta.iloc[0].get('vida_actual', llanta.iloc[0].get('vida', 1))
+        vida_actual = int(vida_val) if pd.notna(vida_val) else 1
+
         # Recalcular costos para cada vida que se ha usado
         for v in range(1, 5):  # Vidas 1, 2, 3, 4
             if v <= vida_actual + 1:  # +1 porque vida 0 = nueva (vida1)
@@ -546,7 +548,7 @@ def subir_datos_csv():
     
     tipo_dato = st.selectbox(
         "Tipo de Datos",
-        options=["Clientes", "Vehículos", "Llantas", "Servicios"]
+        options=["Clientes", "Vehículos", "Llantas", "Servicios", "Movimientos"]
     )
     
     archivo = st.file_uploader(f"Subir archivo CSV de {tipo_dato}", type=['csv'])
@@ -578,7 +580,11 @@ def subir_datos_csv():
                         df_existente = leer_hoja(SHEET_SERVICIOS)
                         df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
                         escribir_hoja(SHEET_SERVICIOS, df_combinado)
-                    
+                    elif tipo_dato == "Movimientos":
+                        df_existente = leer_hoja(SHEET_MOVIMIENTOS)
+                        df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
+                        escribir_hoja(SHEET_MOVIMIENTOS, df_combinado)
+
                     st.success(f"✅ Datos de {tipo_dato} agregados exitosamente")
                     st.rerun()
             
@@ -927,7 +933,8 @@ def ver_llantas_disponibles():
                 marca_original = row.get('marca_llanta', 'N/A')
                 referencia_original = row.get('referencia', 'N/A')
                 dimension = row.get('dimension', 'N/A')
-                vida_actual = int(row['vida']) if pd.notna(row.get('vida')) else 0
+                vida_val = row.get('vida_actual', row.get('vida', 1))
+                vida_actual = int(vida_val) if pd.notna(vida_val) else 1
                 vida_nueva = vida_actual + 1
 
                 col_check, col_info, col_vida = st.columns([0.5, 3, 1])
@@ -1019,8 +1026,9 @@ def ver_llantas_disponibles():
         )
         
         llanta_sel = df_llantas[df_llantas['id_llanta'] == id_llanta_analisis].iloc[0]
-        vida_actual = int(llanta_sel.get('vida', 0))
-        
+        vida_val = llanta_sel.get('vida_actual', llanta_sel.get('vida', 1))
+        vida_actual = int(vida_val) if pd.notna(vida_val) else 1
+
         st.write(f"**Llanta ID {id_llanta_analisis}** - Vida Actual: {vida_actual}")
         
         # Botón para recalcular costos
@@ -1952,14 +1960,22 @@ def reportes():
     
     with tab5:
         st.subheader("Exportar Datos")
-        
+
         st.write("Descarga los datos en formato CSV para análisis externo")
-        
-        col1, col2 = st.columns(2)
-        
+
+        # Obtener clientes accesibles para filtrar exportaciones
+        clientes_acceso_export = obtener_clientes_accesibles()
+
+        col1, col2, col3 = st.columns(3)
+
         with col1:
             if st.button("📥 Descargar Servicios", use_container_width=True):
                 df_servicios = leer_hoja(SHEET_SERVICIOS)
+                # Filtrar por cliente si no es admin
+                if st.session_state.get('nivel') != 1:
+                    df_llantas_temp = leer_hoja(SHEET_LLANTAS)
+                    llantas_cliente = df_llantas_temp[df_llantas_temp['nit_cliente'].isin(clientes_acceso_export)]['id_llanta'].tolist()
+                    df_servicios = df_servicios[df_servicios['id_llanta'].isin(llantas_cliente)]
                 csv = df_servicios.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Servicios.csv",
@@ -1967,9 +1983,10 @@ def reportes():
                     file_name=f"servicios_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime='text/csv'
                 )
-            
+
             if st.button("📥 Descargar Llantas", use_container_width=True):
                 df_llantas = leer_hoja(SHEET_LLANTAS)
+                df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso_export)
                 csv = df_llantas.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Llantas.csv",
@@ -1977,10 +1994,11 @@ def reportes():
                     file_name=f"llantas_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime='text/csv'
                 )
-        
+
         with col2:
             if st.button("📥 Descargar Vehículos", use_container_width=True):
                 df_vehiculos = leer_hoja(SHEET_VEHICULOS)
+                df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso_export)
                 csv = df_vehiculos.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Vehiculos.csv",
@@ -1988,14 +2006,31 @@ def reportes():
                     file_name=f"vehiculos_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime='text/csv'
                 )
-            
+
             if st.button("📥 Descargar Clientes", use_container_width=True):
                 df_clientes = leer_hoja(SHEET_CLIENTES)
+                df_clientes = filtrar_por_clientes(df_clientes, 'nit', clientes_acceso_export)
                 csv = df_clientes.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="💾 Clientes.csv",
                     data=csv,
                     file_name=f"clientes_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime='text/csv'
+                )
+
+        with col3:
+            if st.button("📥 Descargar Movimientos", use_container_width=True):
+                df_movimientos = leer_hoja(SHEET_MOVIMIENTOS)
+                # Filtrar por cliente si no es admin
+                if st.session_state.get('nivel') != 1:
+                    df_llantas_temp = leer_hoja(SHEET_LLANTAS)
+                    llantas_cliente = df_llantas_temp[df_llantas_temp['nit_cliente'].isin(clientes_acceso_export)]['id_llanta'].tolist()
+                    df_movimientos = df_movimientos[df_movimientos['id_llanta'].isin(llantas_cliente)]
+                csv = df_movimientos.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="💾 Movimientos.csv",
+                    data=csv,
+                    file_name=f"movimientos_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime='text/csv'
                 )
 
@@ -2026,8 +2061,9 @@ def gestion_usuarios():
                                       format_func=lambda x: f"Nivel {x} - {'Administrador' if x==1 else 'Supervisor' if x==2 else 'Operario' if x==3 else 'Admin Cliente'}")
         
         clientes_seleccionados = ""
-        if nuevo_nivel == 4:
-            st.write("**Asignar Clientes (solo para Admin Cliente)**")
+        if nuevo_nivel in [2, 3, 4]:
+            nivel_nombre = 'Supervisor' if nuevo_nivel == 2 else 'Operario' if nuevo_nivel == 3 else 'Admin Cliente'
+            st.write(f"**Asignar Clientes para {nivel_nombre}**")
             df_clientes = leer_hoja(SHEET_CLIENTES)
             if not df_clientes.empty:
                 clientes_opciones = st.multiselect(
@@ -2036,12 +2072,12 @@ def gestion_usuarios():
                     format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}"
                 )
                 clientes_seleccionados = ','.join([str(c) for c in clientes_opciones])
-        
+
         if st.button("💾 Crear Usuario", type="primary"):
             if not nuevo_usuario or not nueva_password or not nuevo_nombre:
                 st.error("Debes completar todos los campos")
-            elif nuevo_nivel == 4 and not clientes_seleccionados:
-                st.error("Debes asignar al menos un cliente para Admin Cliente")
+            elif nuevo_nivel in [2, 3, 4] and not clientes_seleccionados:
+                st.error(f"Debes asignar al menos un cliente para este nivel de usuario")
             else:
                 # Leer datos frescos SIN caché para verificar duplicados
                 df_usuarios = leer_hoja_fresco(SHEET_USUARIOS)
@@ -2074,7 +2110,7 @@ def gestion_usuarios():
                 st.write(f"**Nivel:** {nivel} - {'Administrador' if nivel==1 else 'Supervisor' if nivel==2 else 'Operario' if nivel==3 else 'Admin Cliente'}")
                 
                 clientes_asignados = row.get('clientes_asignados', '')
-                if nivel == 4 and clientes_asignados and pd.notna(clientes_asignados):
+                if nivel in [2, 3, 4] and clientes_asignados and pd.notna(clientes_asignados):
                     clientes_nits = str(clientes_asignados).split(',')
                     nombres_clientes = []
                     for nit in clientes_nits:
@@ -2088,9 +2124,9 @@ def gestion_usuarios():
         
         st.info("""
         **Niveles de Usuario:**
-        - **Nivel 1 (Administrador)**: Acceso total al sistema
-        - **Nivel 2 (Supervisor)**: Gestión de clientes, vehículos, llantas y desmontajes
-        - **Nivel 3 (Operario)**: Registro de servicios y montajes
+        - **Nivel 1 (Administrador)**: Acceso total al sistema (todos los clientes)
+        - **Nivel 2 (Supervisor)**: Gestión de clientes, vehículos, llantas y desmontajes (solo clientes asignados)
+        - **Nivel 3 (Operario)**: Registro de servicios y montajes (solo clientes asignados)
         - **Nivel 4 (Admin Cliente)**: Administrador con acceso solo a clientes asignados
         """)
 
