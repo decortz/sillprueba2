@@ -1294,7 +1294,7 @@ def crear_llantas():
     with tab1:
         st.subheader("Registrar Nueva Llanta")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
             def format_cliente(x):
