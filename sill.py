@@ -156,6 +156,26 @@ def get_gsheets_connection():
     """Obtiene la conexión a Google Sheets con Service Account"""
     return st.connection("gsheets", type=GSheetsConnection)
 
+def limpiar_clientes_asignados(valor):
+    """Convierte clientes_asignados a string limpio, manejando floats y múltiples NITs"""
+    if pd.isna(valor) or valor == '' or valor is None:
+        return ''
+    # Si es un número (float o int), convertir a int string
+    if isinstance(valor, (int, float)):
+        return str(int(valor))
+    # Si es string, limpiar cada NIT separado por coma
+    valor_str = str(valor)
+    nits = []
+    for nit in valor_str.split(','):
+        nit = nit.strip()
+        if nit:
+            try:
+                # Intentar convertir a int para eliminar decimales
+                nits.append(str(int(float(nit))))
+            except (ValueError, TypeError):
+                nits.append(nit)
+    return ','.join(nits)
+
 def leer_hoja(nombre_hoja):
     """Lee una hoja de Google Sheets y retorna un DataFrame"""
     try:
@@ -173,6 +193,9 @@ def leer_hoja(nombre_hoja):
         for col in ['nit', 'nit_cliente']:
             if col in df.columns:
                 df[col] = df[col].apply(lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else '')
+        # Convertir clientes_asignados a string limpio (manejar floats como 123456789.0)
+        if 'clientes_asignados' in df.columns:
+            df['clientes_asignados'] = df['clientes_asignados'].apply(limpiar_clientes_asignados)
         return df
     except Exception as e:
         st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
@@ -194,6 +217,9 @@ def leer_hoja_fresco(nombre_hoja):
         for col in ['nit', 'nit_cliente']:
             if col in df.columns:
                 df[col] = df[col].apply(lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else '')
+        # Convertir clientes_asignados a string limpio
+        if 'clientes_asignados' in df.columns:
+            df['clientes_asignados'] = df['clientes_asignados'].apply(limpiar_clientes_asignados)
         return df
     except Exception as e:
         st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
@@ -220,6 +246,9 @@ def escribir_hoja(nombre_hoja, df):
             for col in ['nit', 'nit_cliente']:
                 if col in df_fresco.columns:
                     df_fresco[col] = df_fresco[col].apply(lambda x: str(int(x)) if pd.notna(x) and isinstance(x, (int, float)) else str(x) if pd.notna(x) else '')
+            # Convertir clientes_asignados a string limpio
+            if 'clientes_asignados' in df_fresco.columns:
+                df_fresco['clientes_asignados'] = df_fresco['clientes_asignados'].apply(limpiar_clientes_asignados)
         return df_fresco if df_fresco is not None else df
     except Exception as e:
         st.error(f"Error escribiendo en {nombre_hoja}: {str(e)}")
@@ -521,14 +550,11 @@ def login():
                 st.session_state['nivel'] = int(user_data.iloc[0]['nivel'])
                 st.session_state['nombre'] = user_data.iloc[0]['nombre']
 
-                # Guardar clientes_asignados como string válido
+                # Guardar clientes_asignados (ya viene limpio desde leer_hoja)
                 if 'clientes_asignados' in user_data.columns:
                     clientes_valor = user_data.iloc[0]['clientes_asignados']
-                    # Convertir a string y manejar NaN/None/float
-                    if pd.notna(clientes_valor) and clientes_valor:
-                        st.session_state['clientes_asignados'] = str(clientes_valor)
-                    else:
-                        st.session_state['clientes_asignados'] = ''
+                    # Usar limpiar_clientes_asignados por seguridad
+                    st.session_state['clientes_asignados'] = limpiar_clientes_asignados(clientes_valor)
                 else:
                     st.session_state['clientes_asignados'] = ''
 
