@@ -518,12 +518,18 @@ def login():
                 st.session_state['usuario'] = usuario
                 st.session_state['nivel'] = int(user_data.iloc[0]['nivel'])
                 st.session_state['nombre'] = user_data.iloc[0]['nombre']
-                
+
+                # Guardar clientes_asignados como string válido
                 if 'clientes_asignados' in user_data.columns:
-                    st.session_state['clientes_asignados'] = user_data.iloc[0]['clientes_asignados']
+                    clientes_valor = user_data.iloc[0]['clientes_asignados']
+                    # Convertir a string y manejar NaN/None/float
+                    if pd.notna(clientes_valor) and clientes_valor:
+                        st.session_state['clientes_asignados'] = str(clientes_valor)
+                    else:
+                        st.session_state['clientes_asignados'] = ''
                 else:
                     st.session_state['clientes_asignados'] = ''
-                
+
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos")
@@ -2165,19 +2171,20 @@ def gestion_usuarios():
 
     with tab1:
         st.subheader("Crear Nuevo Usuario")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            nuevo_usuario = st.text_input("Nombre de Usuario")
-            nuevo_nombre = st.text_input("Nombre Completo")
-        
+            nuevo_usuario = st.text_input("Nombre de Usuario", key="crear_nuevo_usuario")
+            nuevo_nombre = st.text_input("Nombre Completo", key="crear_nombre_completo")
+
         with col2:
-            nueva_password = st.text_input("Contraseña", type="password")
-            nuevo_nivel = st.selectbox("Nivel de Acceso", 
+            nueva_password = st.text_input("Contraseña", type="password", key="crear_password")
+            nuevo_nivel = st.selectbox("Nivel de Acceso",
                                       options=[1, 2, 3, 4],
-                                      format_func=lambda x: f"Nivel {x} - {'Administrador' if x==1 else 'Supervisor' if x==2 else 'Operario' if x==3 else 'Admin Cliente'}")
-        
+                                      format_func=lambda x: f"Nivel {x} - {'Administrador' if x==1 else 'Supervisor' if x==2 else 'Operario' if x==3 else 'Admin Cliente'}",
+                                      key="crear_nivel_acceso")
+
         clientes_seleccionados = ""
         if nuevo_nivel in [2, 3, 4]:
             nivel_nombre = 'Supervisor' if nuevo_nivel == 2 else 'Operario' if nuevo_nivel == 3 else 'Admin Cliente'
@@ -2187,7 +2194,8 @@ def gestion_usuarios():
                 clientes_opciones = st.multiselect(
                     "Seleccionar Clientes",
                     options=df_clientes['nit'].values,
-                    format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}"
+                    format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}",
+                    key="crear_clientes_asignados"
                 )
                 clientes_seleccionados = ','.join([str(c) for c in clientes_opciones])
 
@@ -2245,7 +2253,7 @@ def gestion_usuarios():
         - **Nivel 1 (Administrador)**: Acceso total al sistema
         - **Nivel 2 (Supervisor)**: Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)
         - **Nivel 3 (Operario)**: Llantas, Montaje, Servicios, Desmontaje, Reportes - Solo registrar, NO editar (solo clientes asignados)
-        - **Nivel 4 (Admin Cliente)**: Clientes, Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar (solo clientes asignados)
+        - **Nivel 4 (Admin Cliente)**: Estado, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)
         """)
 
     with tab3:
@@ -2272,10 +2280,11 @@ def gestion_usuarios():
                 col1, col2 = st.columns(2)
 
                 with col1:
+                    edit_usuario = st.text_input("Nombre de Usuario", value=usuario_data.get('usuario', ''), key="edit_usuario_nombre")
                     edit_nombre = st.text_input("Nombre Completo", value=usuario_data.get('nombre', ''), key="edit_nombre_usuario")
-                    edit_password = st.text_input("Nueva Contraseña (dejar vacío para mantener)", type="password", key="edit_password_usuario")
 
                 with col2:
+                    edit_password = st.text_input("Nueva Contraseña (dejar vacío para mantener)", type="password", key="edit_password_usuario")
                     niveles = [1, 2, 3, 4]
                     nivel_actual = int(usuario_data.get('nivel', 3)) if pd.notna(usuario_data.get('nivel')) else 3
                     nivel_idx = niveles.index(nivel_actual) if nivel_actual in niveles else 2
@@ -2312,19 +2321,30 @@ def gestion_usuarios():
 
                 with col_btn1:
                     if st.button("💾 Guardar Cambios", key="guardar_usuario", type="primary"):
-                        if not edit_nombre:
-                            st.error("El nombre no puede estar vacío")
+                        if not edit_usuario:
+                            st.error("El nombre de usuario no puede estar vacío")
+                        elif not edit_nombre:
+                            st.error("El nombre completo no puede estar vacío")
                         elif edit_nivel in [2, 3, 4] and not edit_clientes:
                             st.error("Debes asignar al menos un cliente para este nivel")
                         else:
                             df_todos = leer_hoja(SHEET_USUARIOS)
-                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'nombre'] = edit_nombre
-                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'nivel'] = edit_nivel
-                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'clientes_asignados'] = edit_clientes
+
+                            # Verificar que el nuevo nombre de usuario no exista (si cambió)
+                            if edit_usuario != usuario_editar:
+                                if existe_valor(df_todos, 'usuario', edit_usuario):
+                                    st.error("Este nombre de usuario ya existe")
+                                    st.stop()
+
+                            # Actualizar todos los campos incluyendo el nombre de usuario
+                            df_todos.loc[df_todos['usuario'] == usuario_editar, 'usuario'] = edit_usuario
+                            df_todos.loc[df_todos['usuario'] == edit_usuario, 'nombre'] = edit_nombre
+                            df_todos.loc[df_todos['usuario'] == edit_usuario, 'nivel'] = edit_nivel
+                            df_todos.loc[df_todos['usuario'] == edit_usuario, 'clientes_asignados'] = edit_clientes
 
                             # Solo actualizar contraseña si se proporcionó una nueva
                             if edit_password:
-                                df_todos.loc[df_todos['usuario'] == usuario_editar, 'password'] = edit_password
+                                df_todos.loc[df_todos['usuario'] == edit_usuario, 'password'] = edit_password
 
                             escribir_hoja(SHEET_USUARIOS, df_todos)
                             st.success("✅ Usuario actualizado con éxito")
@@ -2410,12 +2430,9 @@ def main():
                 "🔽 Desmontaje de Llantas": "desmontaje",
                 "📊 Reportes y Análisis": "reportes"
             }
-        # Nivel 4 (Admin Cliente): Todo excepto usuarios y subir CSV
+        # Nivel 4 (Admin Cliente): Solo estado, montaje, servicios, desmontaje, reportes, editar
         elif nivel_usuario == 4:
             opciones_menu = {
-                "👤 Gestión de Clientes": "clientes",
-                "🚛 Gestión de Vehículos": "vehiculos",
-                "⚙️ Gestión de Llantas": "llantas",
                 "🔍 Estado de Llantas": "estado_llantas",
                 "🔧 Montaje de Llantas": "montaje",
                 "🛠️ Registro de Servicios": "servicios",
@@ -2442,7 +2459,7 @@ def main():
             elif st.session_state['nivel'] == 3:
                 st.warning("✅ Llantas, Montaje, Servicios, Desmontaje, Reportes (solo registrar)\n❌ Vehículos, Clientes, Editar datos")
             elif st.session_state['nivel'] == 4:
-                st.info("✅ Todo excepto Usuarios y Subir CSV (solo clientes asignados)")
+                st.info("✅ Estado, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)\n❌ Clientes, Vehículos, Llantas, Subir CSV, Usuarios")
         
         st.divider()
         
