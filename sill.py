@@ -229,7 +229,9 @@ def filtrar_por_clientes(df, columna_nit, clientes_acceso):
     """Filtra un DataFrame por clientes accesibles de forma segura"""
     if df.empty or columna_nit not in df.columns:
         return pd.DataFrame()
-    return df[df[columna_nit].isin(clientes_acceso)]
+    # Convertir ambos a string para comparación consistente
+    clientes_acceso_str = [str(c).strip() for c in clientes_acceso]
+    return df[df[columna_nit].astype(str).str.strip().isin(clientes_acceso_str)]
 
 def existe_valor(df, columna, valor):
     """Verifica si un valor existe en una columna de forma segura"""
@@ -2158,6 +2160,72 @@ def reportes():
                     mime='text/csv'
                 )
 
+# ============= FUNCIÓN: MI PERFIL =============
+def mi_perfil():
+    """Permite a cualquier usuario editar su propio perfil"""
+
+    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+    st.header("👤 Mi Perfil")
+
+    usuario_actual = st.session_state.get('usuario', '')
+
+    # Leer datos del usuario actual
+    df_usuarios = leer_hoja(SHEET_USUARIOS)
+    usuario_data = df_usuarios[df_usuarios['usuario'] == usuario_actual]
+
+    if usuario_data.empty:
+        st.error("Error al cargar datos del usuario")
+        return
+
+    usuario_data = usuario_data.iloc[0]
+
+    st.subheader("Editar mis datos")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        nuevo_usuario = st.text_input("Nombre de Usuario", value=usuario_data.get('usuario', ''), key="mi_perfil_usuario")
+        nuevo_nombre = st.text_input("Nombre Completo", value=usuario_data.get('nombre', ''), key="mi_perfil_nombre")
+
+    with col2:
+        nueva_password = st.text_input("Nueva Contraseña (dejar vacío para mantener)", type="password", key="mi_perfil_password")
+        confirmar_password = st.text_input("Confirmar Contraseña", type="password", key="mi_perfil_confirmar")
+
+    st.info(f"**Nivel de acceso:** {usuario_data.get('nivel', '')} - No modificable")
+
+    if st.button("💾 Guardar Cambios", key="guardar_mi_perfil", type="primary"):
+        if not nuevo_usuario:
+            st.error("El nombre de usuario no puede estar vacío")
+        elif not nuevo_nombre:
+            st.error("El nombre completo no puede estar vacío")
+        elif nueva_password and nueva_password != confirmar_password:
+            st.error("Las contraseñas no coinciden")
+        else:
+            df_todos = leer_hoja(SHEET_USUARIOS)
+
+            # Verificar que el nuevo nombre de usuario no exista (si cambió)
+            if nuevo_usuario != usuario_actual:
+                if existe_valor(df_todos, 'usuario', nuevo_usuario):
+                    st.error("Este nombre de usuario ya existe")
+                    st.stop()
+
+            # Actualizar datos
+            df_todos.loc[df_todos['usuario'] == usuario_actual, 'usuario'] = nuevo_usuario
+            df_todos.loc[df_todos['usuario'] == nuevo_usuario, 'nombre'] = nuevo_nombre
+
+            # Solo actualizar contraseña si se proporcionó una nueva
+            if nueva_password:
+                df_todos.loc[df_todos['usuario'] == nuevo_usuario, 'password'] = nueva_password
+
+            escribir_hoja(SHEET_USUARIOS, df_todos)
+
+            # Actualizar session_state con los nuevos datos
+            st.session_state['usuario'] = nuevo_usuario
+            st.session_state['nombre'] = nuevo_nombre
+
+            st.success("✅ Perfil actualizado con éxito")
+            st.rerun()
+
 def gestion_usuarios():
     """Función para gestionar usuarios (solo nivel 1)"""
     
@@ -2253,7 +2321,7 @@ def gestion_usuarios():
         - **Nivel 1 (Administrador)**: Acceso total al sistema
         - **Nivel 2 (Supervisor)**: Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)
         - **Nivel 3 (Operario)**: Llantas, Montaje, Servicios, Desmontaje, Reportes - Solo registrar, NO editar (solo clientes asignados)
-        - **Nivel 4 (Admin Cliente)**: Estado, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)
+        - **Nivel 4 (Admin Cliente)**: Vehículos, Llantas, Estado, Montaje, Servicios, Desmontaje, Reportes, Editar (solo clientes asignados, NO gestión de clientes)
         """)
 
     with tab3:
@@ -2406,7 +2474,8 @@ def main():
                 "📊 Reportes y Análisis": "reportes",
                 "📤 Subir Datos CSV": "subir_csv",
                 "✏️ Editar/Eliminar Datos": "editar_datos",
-                "👥 Gestión de Usuarios": "usuarios"
+                "👥 Gestión de Usuarios": "usuarios",
+                "🔑 Mi Perfil": "mi_perfil"
             }
         # Nivel 2 (Supervisor): Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar
         elif nivel_usuario == 2:
@@ -2418,7 +2487,8 @@ def main():
                 "🛠️ Registro de Servicios": "servicios",
                 "🔽 Desmontaje de Llantas": "desmontaje",
                 "📊 Reportes y Análisis": "reportes",
-                "✏️ Editar/Eliminar Datos": "editar_datos"
+                "✏️ Editar/Eliminar Datos": "editar_datos",
+                "🔑 Mi Perfil": "mi_perfil"
             }
         # Nivel 3 (Operario): Llantas, Montaje, Servicios, Desmontaje, Reportes (solo ver, no editar)
         elif nivel_usuario == 3:
@@ -2428,17 +2498,21 @@ def main():
                 "🔧 Montaje de Llantas": "montaje",
                 "🛠️ Registro de Servicios": "servicios",
                 "🔽 Desmontaje de Llantas": "desmontaje",
-                "📊 Reportes y Análisis": "reportes"
+                "📊 Reportes y Análisis": "reportes",
+                "🔑 Mi Perfil": "mi_perfil"
             }
-        # Nivel 4 (Admin Cliente): Solo estado, montaje, servicios, desmontaje, reportes, editar
+        # Nivel 4 (Admin Cliente): Vehículos, Llantas, Estado, Montaje, Servicios, Desmontaje, Reportes, Editar (NO clientes)
         elif nivel_usuario == 4:
             opciones_menu = {
+                "🚛 Gestión de Vehículos": "vehiculos",
+                "⚙️ Gestión de Llantas": "llantas",
                 "🔍 Estado de Llantas": "estado_llantas",
                 "🔧 Montaje de Llantas": "montaje",
                 "🛠️ Registro de Servicios": "servicios",
                 "🔽 Desmontaje de Llantas": "desmontaje",
                 "📊 Reportes y Análisis": "reportes",
-                "✏️ Editar/Eliminar Datos": "editar_datos"
+                "✏️ Editar/Eliminar Datos": "editar_datos",
+                "🔑 Mi Perfil": "mi_perfil"
             }
 
         opcion = st.radio("Menú Principal", list(opciones_menu.keys()), label_visibility="collapsed")
@@ -2455,11 +2529,11 @@ def main():
             if st.session_state['nivel'] == 1:
                 st.success("✅ Acceso Total al Sistema")
             elif st.session_state['nivel'] == 2:
-                st.info("✅ Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos\n❌ Clientes, Subir CSV, Usuarios")
+                st.info("✅ Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos, Mi Perfil\n❌ Clientes, Subir CSV, Usuarios")
             elif st.session_state['nivel'] == 3:
-                st.warning("✅ Llantas, Montaje, Servicios, Desmontaje, Reportes (solo registrar)\n❌ Vehículos, Clientes, Editar datos")
+                st.warning("✅ Llantas, Montaje, Servicios, Desmontaje, Reportes, Mi Perfil (solo registrar)\n❌ Vehículos, Clientes, Editar datos")
             elif st.session_state['nivel'] == 4:
-                st.info("✅ Estado, Montaje, Servicios, Desmontaje, Reportes, Editar datos (solo clientes asignados)\n❌ Clientes, Vehículos, Llantas, Subir CSV, Usuarios")
+                st.info("✅ Vehículos, Llantas, Estado, Montaje, Servicios, Desmontaje, Reportes, Editar, Mi Perfil (solo clientes asignados)\n❌ Gestión de Clientes, Subir CSV, Usuarios")
         
         st.divider()
         
@@ -2504,6 +2578,8 @@ def main():
         eliminar_corregir_datos()
     elif opcion_seleccionada == "usuarios":
         gestion_usuarios()
+    elif opcion_seleccionada == "mi_perfil":
+        mi_perfil()
 
 if __name__ == "__main__":
     main()
