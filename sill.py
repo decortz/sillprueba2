@@ -12,6 +12,7 @@ SHEET_LLANTAS = "llantas"
 SHEET_SERVICIOS = "servicios"
 SHEET_USUARIOS = "usuarios"
 SHEET_MOVIMIENTOS = "movimientos"
+SHEET_ALINEACIONES = "alineaciones"
 
 # Configuración de la página con colores personalizados
 st.set_page_config(page_title="Sistema Integrado de Llantas", layout="wide", initial_sidebar_state="expanded")
@@ -805,7 +806,8 @@ def eliminar_corregir_datos():
                 else:
                     edit_pos_nueva = ""
                 edit_balanceo = st.checkbox("Balanceo", value=(servicio.get('balanceo', 'No') == 'Sí'), key="edit_balanceo")
-                edit_alineacion = st.checkbox("Alineación", value=(servicio.get('alineacion', 'No') == 'Sí'), key="edit_alineacion")
+                edit_reparacion = st.checkbox("Reparación", value=(servicio.get('reparacion', 'No') == 'Sí'), key="edit_reparacion")
+                edit_despinche = st.checkbox("Despinche", value=(servicio.get('despinche', 'No') == 'Sí'), key="edit_despinche")
                 edit_regrabacion = st.checkbox("Regrabación", value=(servicio.get('regrabacion', 'No') == 'Sí'), key="edit_regrabacion")
                 edit_torqueo = st.checkbox("Torqueo", value=(servicio.get('torqueo', 'No') == 'Sí'), key="edit_torqueo")
 
@@ -829,7 +831,8 @@ def eliminar_corregir_datos():
                         df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'rotacion'] = 'Sí' if edit_rotacion else 'No'
                         df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'posicion_nueva'] = edit_pos_nueva if edit_rotacion else ''
                         df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'balanceo'] = 'Sí' if edit_balanceo else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'alineacion'] = 'Sí' if edit_alineacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'reparacion'] = 'Sí' if edit_reparacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'despinche'] = 'Sí' if edit_despinche else 'No'
                         df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'regrabacion'] = 'Sí' if edit_regrabacion else 'No'
                         df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'torqueo'] = 'Sí' if edit_torqueo else 'No'
                         df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'comentario_fvu'] = nuevo_comentario
@@ -1489,8 +1492,10 @@ def crear_llantas():
                 # Leer datos frescos SIN caché para verificar duplicados
                 df_llantas = leer_hoja_fresco(SHEET_LLANTAS)
 
-                if existe_valor(df_llantas, 'id_llanta', id_llanta):
-                    st.error("Este ID de llanta ya existe")
+                # Verificar si ID llanta ya existe para el mismo cliente
+                llantas_cliente = df_llantas[df_llantas['nit_cliente'].astype(str) == str(cliente_seleccionado)]
+                if not llantas_cliente.empty and id_llanta in llantas_cliente['id_llanta'].values:
+                    st.error("❌ Número de llanta ya existe para este cliente")
                 else:
                     nueva_llanta = pd.DataFrame([{
                         'id_llanta': id_llanta,
@@ -1500,6 +1505,8 @@ def crear_llantas():
                         'dimension': dimension,
                         'vida_actual': 1,
                         'disponibilidad': 'llanta_nueva',
+                        'kilometros_totales': 0,
+                        'km_ultimo_montaje': 0,
                         'placa_actual': '',
                         'posicion_actual': '',
                         'estado_reencauche': '',
@@ -1627,6 +1634,7 @@ def montaje_llantas():
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'placa_actual'] = placa_vehiculo
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'posicion_actual'] = posicion
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'estado_reencauche'] = ''
+            df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'km_ultimo_montaje'] = kilometraje
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             escribir_hoja(SHEET_LLANTAS, df_llantas)
@@ -1717,7 +1725,8 @@ def registrar_servicios():
             nueva_posicion = ""
 
         balanceo = st.checkbox("Balanceo")
-        alineacion = st.checkbox("Alineación")
+        reparacion = st.checkbox("Reparación")
+        despinche = st.checkbox("Despinche")
         regrabacion = st.checkbox("Regrabación")
         torqueo = st.checkbox("Torqueo")
 
@@ -1767,7 +1776,8 @@ def registrar_servicios():
                 'profundidad_2': profundidad_2,
                 'profundidad_3': profundidad_3,
                 'balanceo': 'Sí' if balanceo else 'No',
-                'alineacion': 'Sí' if alineacion else 'No',
+                'reparacion': 'Sí' if reparacion else 'No',
+                'despinche': 'Sí' if despinche else 'No',
                 'regrabacion': 'Sí' if regrabacion else 'No',
                 'torqueo': 'Sí' if torqueo else 'No',
                 'comentario_fvu': '',
@@ -1880,9 +1890,19 @@ def desmontaje_llantas():
         else:
             df_llantas = leer_hoja(SHEET_LLANTAS)
 
+            # Calcular kilómetros recorridos y sumar a kilometros_totales
+            llanta_data = df_llantas[df_llantas['id_llanta'] == id_llanta].iloc[0]
+            km_ultimo_montaje = float(llanta_data.get('km_ultimo_montaje', 0)) if pd.notna(llanta_data.get('km_ultimo_montaje', 0)) else 0
+            kilometros_totales_actual = float(llanta_data.get('kilometros_totales', 0)) if pd.notna(llanta_data.get('kilometros_totales', 0)) else 0
+
+            # Calcular km recorridos en este período
+            km_recorridos = max(0, kilometraje - km_ultimo_montaje)
+            nuevo_total_km = kilometros_totales_actual + km_recorridos
+
             # Limpiar placa y posición actuales
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'placa_actual'] = ''
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'posicion_actual'] = ''
+            df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'kilometros_totales'] = nuevo_total_km
             df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             observaciones = ''
@@ -1915,6 +1935,7 @@ def desmontaje_llantas():
             )
 
             st.success(mensaje)
+            st.info(f"📊 Km recorridos este período: **{km_recorridos:,.0f}** | Total acumulado: **{nuevo_total_km:,.0f}** km")
             st.rerun()
 
     st.divider()
@@ -1932,6 +1953,118 @@ def desmontaje_llantas():
         st.info(f"📋 {len(llantas_reencauche)} llantas esperando aprobación de planta")
     else:
         st.info("✨ No hay llantas pendientes de aprobación")
+
+# ============= FUNCIÓN: REGISTRAR ALINEACIÓN =============
+def registrar_alineacion():
+    """Función para registrar alineaciones de vehículos"""
+
+    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+    st.header("🔧 Registro de Alineación")
+
+    if not verificar_permiso(3):
+        return
+
+    clientes_acceso = obtener_clientes_accesibles()
+
+    if not clientes_acceso:
+        st.warning("No tienes clientes asignados")
+        return
+
+    df_vehiculos = leer_hoja(SHEET_VEHICULOS)
+    df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
+
+    # Solo vehículos activos
+    if 'estado' in df_vehiculos.columns:
+        df_vehiculos = df_vehiculos[df_vehiculos['estado'] == 'activo']
+
+    if df_vehiculos.empty:
+        st.warning("No hay vehículos activos disponibles")
+        return
+
+    tab1, tab2 = st.tabs(["➕ Nueva Alineación", "📋 Historial de Alineaciones"])
+
+    with tab1:
+        st.subheader("Registrar Nueva Alineación")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            placa_vehiculo = st.selectbox(
+                "Seleccionar Vehículo",
+                options=df_vehiculos['placa_vehiculo'].values,
+                format_func=lambda x: f"{x} - {df_vehiculos[df_vehiculos['placa_vehiculo']==x]['marca'].values[0]} {df_vehiculos[df_vehiculos['placa_vehiculo']==x]['linea'].values[0]}",
+                key="alineacion_placa"
+            )
+
+            fecha_alineacion = st.date_input("Fecha del Servicio", value=datetime.now(), key="alineacion_fecha")
+
+        with col2:
+            vehiculo_data = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa_vehiculo].iloc[0]
+            km_inicial = float(vehiculo_data.get('kilometraje_inicial', 0)) if pd.notna(vehiculo_data.get('kilometraje_inicial', 0)) else 0
+
+            kilometraje = st.number_input(
+                "Kilometraje del Vehículo",
+                min_value=0,
+                value=int(km_inicial),
+                step=1,
+                key="alineacion_km"
+            )
+
+            observaciones = st.text_area("Observaciones", key="alineacion_obs")
+
+        if st.button("💾 Registrar Alineación", type="primary", key="btn_registrar_alineacion"):
+            df_alineaciones = leer_hoja(SHEET_ALINEACIONES)
+
+            # Generar ID de alineación
+            if df_alineaciones.empty or 'id_alineacion' not in df_alineaciones.columns:
+                nuevo_id = 1
+            else:
+                nuevo_id = int(df_alineaciones['id_alineacion'].max()) + 1
+
+            nit_cliente = vehiculo_data['nit_cliente']
+
+            nueva_alineacion = pd.DataFrame([{
+                'id_alineacion': nuevo_id,
+                'fecha': fecha_alineacion.strftime("%d/%m/%Y"),
+                'placa_vehiculo': placa_vehiculo,
+                'nit_cliente': nit_cliente,
+                'kilometraje': kilometraje,
+                'observaciones': observaciones,
+                'usuario_registro': st.session_state['usuario'],
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }])
+
+            df_alineaciones = pd.concat([df_alineaciones, nueva_alineacion], ignore_index=True)
+            escribir_hoja(SHEET_ALINEACIONES, df_alineaciones)
+
+            st.success(f"✅ Alineación #{nuevo_id} registrada exitosamente para vehículo {placa_vehiculo}")
+            st.balloons()
+
+    with tab2:
+        st.subheader("Historial de Alineaciones")
+
+        df_alineaciones = leer_hoja(SHEET_ALINEACIONES)
+
+        if not df_alineaciones.empty:
+            # Filtrar por clientes accesibles
+            df_alineaciones = filtrar_por_clientes(df_alineaciones, 'nit_cliente', clientes_acceso)
+
+            if not df_alineaciones.empty:
+                # Filtro por placa
+                placas_disponibles = ['Todas'] + list(df_alineaciones['placa_vehiculo'].unique())
+                filtro_placa = st.selectbox("Filtrar por Vehículo", options=placas_disponibles, key="filtro_alineacion_placa")
+
+                if filtro_placa != 'Todas':
+                    df_alineaciones = df_alineaciones[df_alineaciones['placa_vehiculo'] == filtro_placa]
+
+                columnas_mostrar = ['id_alineacion', 'fecha', 'placa_vehiculo', 'kilometraje', 'observaciones', 'usuario_registro']
+                columnas_disponibles = [col for col in columnas_mostrar if col in df_alineaciones.columns]
+
+                st.dataframe(df_alineaciones[columnas_disponibles].sort_values('id_alineacion', ascending=False), use_container_width=True)
+            else:
+                st.info("No hay alineaciones registradas para tus clientes")
+        else:
+            st.info("No hay alineaciones registradas")
 
 def reportes():
     """Función para generar reportes y análisis"""
@@ -2007,12 +2140,13 @@ def reportes():
                 'id_servicio': 'count',
                 'rotacion': lambda x: (x == 'Sí').sum(),
                 'balanceo': lambda x: (x == 'Sí').sum(),
-                'alineacion': lambda x: (x == 'Sí').sum(),
+                'reparacion': lambda x: (x == 'Sí').sum() if 'reparacion' in df_servicios.columns else 0,
+                'despinche': lambda x: (x == 'Sí').sum() if 'despinche' in df_servicios.columns else 0,
                 'regrabacion': lambda x: (x == 'Sí').sum(),
                 'torqueo': lambda x: (x == 'Sí').sum()
             }).reset_index()
-            
-            resumen.columns = ['ID Llanta', 'Total Servicios', 'Rotaciones', 'Balanceos', 'Alineaciones', 'Regrabaciones', 'Torqueos']
+
+            resumen.columns = ['ID Llanta', 'Total Servicios', 'Rotaciones', 'Balanceos', 'Reparaciones', 'Despinches', 'Regrabaciones', 'Torqueos']
             
             st.dataframe(resumen, use_container_width=True)
             
@@ -2496,6 +2630,7 @@ def main():
                 "🔍 Estado de Llantas": "estado_llantas",
                 "🔧 Montaje de Llantas": "montaje",
                 "🛠️ Registro de Servicios": "servicios",
+                "📐 Registro de Alineación": "alineacion",
                 "🔽 Desmontaje de Llantas": "desmontaje",
                 "📊 Reportes y Análisis": "reportes",
                 "📤 Subir Datos CSV": "subir_csv",
@@ -2511,6 +2646,7 @@ def main():
                 "🔍 Estado de Llantas": "estado_llantas",
                 "🔧 Montaje de Llantas": "montaje",
                 "🛠️ Registro de Servicios": "servicios",
+                "📐 Registro de Alineación": "alineacion",
                 "🔽 Desmontaje de Llantas": "desmontaje",
                 "📊 Reportes y Análisis": "reportes",
                 "✏️ Editar/Eliminar Datos": "editar_datos",
@@ -2523,6 +2659,7 @@ def main():
                 "🔍 Estado de Llantas": "estado_llantas",
                 "🔧 Montaje de Llantas": "montaje",
                 "🛠️ Registro de Servicios": "servicios",
+                "📐 Registro de Alineación": "alineacion",
                 "🔽 Desmontaje de Llantas": "desmontaje",
                 "📊 Reportes y Análisis": "reportes",
                 "🔑 Mi Perfil": "mi_perfil"
@@ -2535,6 +2672,7 @@ def main():
                 "🔍 Estado de Llantas": "estado_llantas",
                 "🔧 Montaje de Llantas": "montaje",
                 "🛠️ Registro de Servicios": "servicios",
+                "📐 Registro de Alineación": "alineacion",
                 "🔽 Desmontaje de Llantas": "desmontaje",
                 "📊 Reportes y Análisis": "reportes",
                 "✏️ Editar/Eliminar Datos": "editar_datos",
@@ -2594,6 +2732,8 @@ def main():
         montaje_llantas()
     elif opcion_seleccionada == "servicios":
         registrar_servicios()
+    elif opcion_seleccionada == "alineacion":
+        registrar_alineacion()
     elif opcion_seleccionada == "desmontaje":
         desmontaje_llantas()
     elif opcion_seleccionada == "reportes":
