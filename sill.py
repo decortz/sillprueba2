@@ -1504,6 +1504,7 @@ def crear_llantas():
                         'disponibilidad': 'llanta_nueva',
                         'kilometros_totales': 0,
                         'km_ultimo_montaje': 0,
+                        'total_regrabaciones': 0,
                         'placa_actual': '',
                         'posicion_actual': '',
                         'estado_reencauche': '',
@@ -1784,11 +1785,21 @@ def registrar_servicios():
             
             df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
             escribir_hoja(SHEET_SERVICIOS, df_servicios)
-            
+
+            # Si hubo regrabación, incrementar contador en llantas
+            if regrabacion:
+                df_llantas_update = leer_hoja(SHEET_LLANTAS)
+                regrabaciones_actual = df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'].values
+                regrabaciones_actual = int(regrabaciones_actual[0]) if len(regrabaciones_actual) > 0 and pd.notna(regrabaciones_actual[0]) else 0
+                df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'] = regrabaciones_actual + 1
+                escribir_hoja(SHEET_LLANTAS, df_llantas_update)
+
             # ACTUALIZAR COSTOS/KM AUTOMÁTICAMENTE
             actualizar_costos_km_llanta(id_llanta)
-            
+
             st.success(f"✅ Servicio {id_servicio} registrado exitosamente para llanta ID {id_llanta}")
+            if regrabacion:
+                st.info(f"🔧 Regrabación registrada. Total regrabaciones: {regrabaciones_actual + 1}")
             st.info("💡 Los costos/km se han actualizado automáticamente")
             
             st.session_state['servicio_completado'] = True
