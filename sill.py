@@ -1936,14 +1936,15 @@ def montaje_llantas(embedded=False):
             st.info(f"📋 Servicio de montaje registrado: {id_servicio}")
             st.rerun()
 
-def registrar_servicios():
+def registrar_servicios(embedded=False):
     """Función para registrar servicios de mantenimiento"""
 
-    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
-    st.header("🛠️ Registro de Servicios")
+    if not embedded:
+        st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+        st.header("🛠️ Registro de Servicios")
 
-    if not verificar_permiso(3):
-        return
+        if not verificar_permiso(3):
+            return
 
     df_llantas = leer_hoja(SHEET_LLANTAS)
     df_vehiculos = leer_hoja(SHEET_VEHICULOS)
@@ -1971,9 +1972,9 @@ def registrar_servicios():
     # Campos de orden de trabajo y planilla (primeras columnas)
     col_ot1, col_ot2 = st.columns(2)
     with col_ot1:
-        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001")
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="srv_ot")
     with col_ot2:
-        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla")
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="srv_planilla")
 
     st.divider()
 
@@ -1987,7 +1988,8 @@ def registrar_servicios():
         id_llanta = st.selectbox(
             "ID Llanta",
             options=llanta_opciones,
-            format_func=lambda x: f"ID {x} - Placa: {llantas_en_piso[llantas_en_piso['id_llanta']==x][placa_col].values[0] if placa_col in llantas_en_piso.columns else 'N/A'}"
+            format_func=lambda x: f"ID {x} - Placa: {llantas_en_piso[llantas_en_piso['id_llanta']==x][placa_col].values[0] if placa_col in llantas_en_piso.columns else 'N/A'}",
+            key="srv_id_llanta"
         )
 
         # 5.1 - Buscar último servicio de la llanta para mostrar profundidades y km
@@ -2005,8 +2007,8 @@ def registrar_servicios():
         else:
             st.caption("📊 Sin servicios previos registrados")
 
-        fecha_servicio = st.date_input("Fecha del Servicio", datetime.now())
-        kilometraje = st.number_input("Kilometraje", min_value=0, value=0)
+        fecha_servicio = st.date_input("Fecha del Servicio", datetime.now(), key="srv_fecha")
+        kilometraje = st.number_input("Kilometraje", min_value=0, value=0, key="srv_km")
 
     # Mostrar info de la llanta seleccionada
     llanta_sel = llantas_en_piso[llantas_en_piso['id_llanta'] == id_llanta].iloc[0]
@@ -2017,23 +2019,23 @@ def registrar_servicios():
 
     with col2:
         st.write("**Profundidades (mm)**")
-        profundidad_1 = st.number_input("Profundidad 1 (interna)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
-        profundidad_2 = st.number_input("Profundidad 2 (centro)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
-        profundidad_3 = st.number_input("Profundidad 3 (externa)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
+        profundidad_1 = st.number_input("Profundidad 1 (interna)", min_value=0.0, max_value=30.0, value=10.0, step=0.5, key="srv_prof1")
+        profundidad_2 = st.number_input("Profundidad 2 (centro)", min_value=0.0, max_value=30.0, value=10.0, step=0.5, key="srv_prof2")
+        profundidad_3 = st.number_input("Profundidad 3 (externa)", min_value=0.0, max_value=30.0, value=10.0, step=0.5, key="srv_prof3")
 
     with col3:
         st.write("**Servicios Realizados**")
-        balanceo = st.checkbox("Balanceo")
-        reparacion = st.checkbox("Reparación")
-        despinche = st.checkbox("Despinche")
-        regrabacion = st.checkbox("Regrabación")
-        torqueo = st.checkbox("Torqueo")
-        inspeccion = st.checkbox("Inspección")
+        balanceo = st.checkbox("Balanceo", key="srv_balanceo")
+        reparacion = st.checkbox("Reparación", key="srv_reparacion")
+        despinche = st.checkbox("Despinche", key="srv_despinche")
+        regrabacion = st.checkbox("Regrabación", key="srv_regrabacion")
+        torqueo = st.checkbox("Torqueo", key="srv_torqueo")
+        inspeccion = st.checkbox("Inspección", key="srv_inspeccion")
 
         # 5.2 - Casilla insumos cuando se marque balanceo o reparación
         insumos = ""
         if balanceo or reparacion:
-            insumos = st.text_input("📦 Insumos utilizados", placeholder="Ej: Parche, pegamento, plomos")
+            insumos = st.text_input("📦 Insumos utilizados", placeholder="Ej: Parche, pegamento, plomos", key="srv_insumos")
 
     # Obtener NIT del cliente de la llanta seleccionada para filtrar operarios
     llanta_sel_temp = llantas_en_piso[llantas_en_piso['id_llanta'] == id_llanta].iloc[0]
@@ -2043,11 +2045,11 @@ def registrar_servicios():
     # Selector de operario
     st.divider()
     if operarios_disponibles:
-        operario = st.selectbox("👷 Operario", options=operarios_disponibles)
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="srv_operario")
     else:
-        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente")
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="srv_operario_txt")
 
-    if st.button("💾 Registrar Servicio", type="primary"):
+    if st.button("💾 Registrar Servicio", type="primary", key="srv_btn_registrar"):
         df_servicios = leer_hoja(SHEET_SERVICIOS)
         df_llantas = leer_hoja(SHEET_LLANTAS)
         df_vehiculos = leer_hoja(SHEET_VEHICULOS)
@@ -2146,15 +2148,18 @@ def registrar_servicios():
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("➕ Registrar Otro Servicio", use_container_width=True):
+            if st.button("➕ Registrar Otro Servicio", use_container_width=True, key="srv_btn_otro"):
                 st.session_state['servicio_completado'] = False
                 st.rerun()
 
         with col2:
-            if st.button("🔽 Realizar Desmontaje", use_container_width=True, type="primary"):
-                st.session_state['servicio_completado'] = False
-                st.session_state['ir_a_desmontaje'] = True
-                st.rerun()
+            if embedded:
+                st.info("💡 Para desmontar, ve al tab **Desmontaje** arriba.")
+            else:
+                if st.button("🔽 Realizar Desmontaje", use_container_width=True, type="primary", key="srv_btn_desmontaje"):
+                    st.session_state['servicio_completado'] = False
+                    st.session_state['ir_a_desmontaje'] = True
+                    st.rerun()
 
     # ============= 5.4 y 5.5: HISTORIAL DE SERVICIOS CON FILTROS =============
     st.divider()
@@ -2279,14 +2284,15 @@ def registrar_servicios():
     else:
         st.info("No hay servicios registrados")
 
-def desmontaje_llantas():
+def desmontaje_llantas(embedded=False):
     """Función para desmontar llantas y cambiar disponibilidad"""
 
-    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
-    st.header("🔽 Desmontaje de Llantas")
+    if not embedded:
+        st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+        st.header("🔽 Desmontaje de Llantas")
 
-    if not verificar_permiso(2):
-        return
+        if not verificar_permiso(2):
+            return
 
     df_llantas = leer_hoja(SHEET_LLANTAS)
 
@@ -2321,13 +2327,15 @@ def desmontaje_llantas():
         id_llanta = st.selectbox(
             "Seleccionar Llanta a Desmontar",
             options=llantas_montadas['id_llanta'].values,
-            format_func=lambda x: f"ID {x} - Placa: {llantas_montadas[llantas_montadas['id_llanta']==x][placa_col].values[0] if placa_col in llantas_montadas.columns else 'N/A'}"
+            format_func=lambda x: f"ID {x} - Placa: {llantas_montadas[llantas_montadas['id_llanta']==x][placa_col].values[0] if placa_col in llantas_montadas.columns else 'N/A'}",
+            key="desm_id_llanta"
         )
 
     with col2:
         nueva_disponibilidad = st.selectbox(
             "Nueva Disponibilidad",
-            options=['recambio', 'reencauche', 'FVU']
+            options=['recambio', 'reencauche', 'FVU'],
+            key="desm_nueva_disp"
         )
 
     # Obtener datos de la llanta seleccionada
@@ -2340,12 +2348,12 @@ def desmontaje_llantas():
 
     col3, col4 = st.columns(2)
     with col3:
-        kilometraje = st.number_input("Kilometraje actual del vehículo", min_value=0, value=0)
+        kilometraje = st.number_input("Kilometraje actual del vehículo", min_value=0, value=0, key="desm_km")
 
     razon_fvu = None
     if nueva_disponibilidad == 'FVU':
         with col4:
-            razon_fvu = st.text_input("Razón de FVU (Fuera de Uso)")
+            razon_fvu = st.text_input("Razón de FVU (Fuera de Uso)", key="desm_razon_fvu")
 
     # Obtener operarios del cliente
     nit_cliente_llanta = llanta_sel['nit_cliente']
@@ -2356,7 +2364,7 @@ def desmontaje_llantas():
     else:
         operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="desmontaje_operario_txt")
 
-    if st.button("🔽 Desmontar Llanta", type="primary"):
+    if st.button("🔽 Desmontar Llanta", type="primary", key="desm_btn_desmontar"):
         if kilometraje <= 0:
             st.error("Debes ingresar el kilometraje actual del vehículo")
         elif nueva_disponibilidad == 'FVU' and not razon_fvu:
@@ -2463,14 +2471,15 @@ def desmontaje_llantas():
             st.rerun()
 
 # ============= FUNCIÓN: REGISTRAR ALINEACIÓN =============
-def registrar_alineacion():
+def registrar_alineacion(embedded=False):
     """Función para registrar alineaciones de vehículos"""
 
-    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
-    st.header("🔧 Registro de Alineación")
+    if not embedded:
+        st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+        st.header("🔧 Registro de Alineación")
 
-    if not verificar_permiso(3):
-        return
+        if not verificar_permiso(3):
+            return
 
     clientes_acceso = obtener_clientes_accesibles()
 
@@ -2594,6 +2603,258 @@ def registrar_alineacion():
                 st.info("No hay alineaciones registradas para tus clientes")
         else:
             st.info("No hay alineaciones registradas")
+
+def rotacion_completa():
+    """Función para realizar rotación completa de llantas en un vehículo"""
+
+    df_llantas = leer_hoja(SHEET_LLANTAS)
+    df_vehiculos = leer_hoja(SHEET_VEHICULOS)
+
+    clientes_acceso = obtener_clientes_accesibles()
+    df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
+    df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
+
+    if df_vehiculos.empty:
+        st.warning("⚠️ No hay vehículos registrados para tus clientes")
+        return
+
+    # Solo vehículos activos
+    if 'estado' in df_vehiculos.columns:
+        df_vehiculos_activos = df_vehiculos[df_vehiculos['estado'] == 'activo']
+    else:
+        df_vehiculos_activos = df_vehiculos
+
+    if df_vehiculos_activos.empty:
+        st.warning("⚠️ No hay vehículos activos disponibles")
+        return
+
+    # Campos de orden de trabajo y planilla
+    col_ot1, col_ot2 = st.columns(2)
+    with col_ot1:
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="rot_ot")
+    with col_ot2:
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="rot_planilla")
+
+    st.divider()
+
+    # Seleccionar vehículo
+    placa_vehiculo = st.selectbox(
+        "🚛 Seleccionar Vehículo",
+        options=df_vehiculos_activos['placa_vehiculo'].values,
+        format_func=lambda x: f"{x} - {df_vehiculos_activos[df_vehiculos_activos['placa_vehiculo']==x]['marca'].values[0] if 'marca' in df_vehiculos_activos.columns else ''}",
+        key="rot_placa"
+    )
+
+    # Obtener datos del vehículo
+    vehiculo_data = df_vehiculos_activos[df_vehiculos_activos['placa_vehiculo'] == placa_vehiculo].iloc[0]
+    nit_cliente = vehiculo_data['nit_cliente']
+
+    # Filtrar llantas montadas en este vehículo
+    col_placa = 'placa_actual' if 'placa_actual' in df_llantas.columns else 'placa_vehiculo'
+    col_pos = 'posicion_actual' if 'posicion_actual' in df_llantas.columns else 'pos_final'
+
+    llantas_vehiculo = df_llantas[
+        (df_llantas['disponibilidad'] == 'al_piso') &
+        (df_llantas[col_placa].astype(str) == str(placa_vehiculo))
+    ].copy()
+
+    if llantas_vehiculo.empty:
+        st.warning(f"⚠️ No hay llantas montadas en el vehículo {placa_vehiculo}")
+        return
+
+    if len(llantas_vehiculo) < 2:
+        st.warning("⚠️ Se necesitan al menos 2 llantas montadas para realizar una rotación")
+        return
+
+    # Kilometraje
+    kilometraje = st.number_input("📏 Kilometraje actual del vehículo", min_value=0, value=0, key="rot_km")
+
+    st.divider()
+    st.subheader("📍 Asignar nuevas posiciones")
+    st.caption("Ingresa la nueva posición para cada llanta. Deja igual si no se mueve.")
+
+    # Normalizar posiciones actuales
+    nuevas_posiciones = {}
+    posiciones_actuales = {}
+    for _, row in llantas_vehiculo.iterrows():
+        id_ll = str(row['id_llanta'])
+        pos_raw = row.get(col_pos, '')
+        try:
+            pos_actual = str(int(float(pos_raw)))
+        except (ValueError, TypeError):
+            pos_actual = str(pos_raw).strip()
+        posiciones_actuales[id_ll] = pos_actual
+
+    # Crear inputs para cada llanta
+    cols_header = st.columns([2, 2, 2, 2])
+    cols_header[0].write("**ID Llanta**")
+    cols_header[1].write("**Marca / Dim.**")
+    cols_header[2].write("**Pos. Actual**")
+    cols_header[3].write("**Nueva Posición**")
+
+    for _, row in llantas_vehiculo.iterrows():
+        id_ll = str(row['id_llanta'])
+        pos_actual = posiciones_actuales[id_ll]
+        marca = row.get('marca_llanta', '')
+        dimension = row.get('dimension', '')
+
+        cols = st.columns([2, 2, 2, 2])
+        cols[0].write(f"`{id_ll}`")
+        cols[1].write(f"{marca} {dimension}")
+        cols[2].write(f"**{pos_actual}**")
+        nueva_pos = cols[3].text_input(
+            "Nueva pos.", value=pos_actual, key=f"rot_pos_{id_ll}",
+            label_visibility="collapsed"
+        )
+        nuevas_posiciones[id_ll] = nueva_pos.strip()
+
+    # Operario
+    operarios_disponibles = obtener_operarios_cliente(nit_cliente)
+    st.divider()
+    if operarios_disponibles:
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="rot_operario")
+    else:
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados", key="rot_operario_txt")
+
+    # Validar que haya al menos un cambio
+    hay_cambio = any(
+        nuevas_posiciones[id_ll] != posiciones_actuales[id_ll]
+        for id_ll in posiciones_actuales
+    )
+
+    # Validar duplicados en nuevas posiciones
+    pos_nuevas_list = [v for v in nuevas_posiciones.values() if v]
+    hay_duplicados = len(pos_nuevas_list) != len(set(pos_nuevas_list))
+
+    if hay_duplicados:
+        st.error("⚠️ Hay posiciones duplicadas en la asignación. Cada llanta debe tener una posición única.")
+
+    if not hay_cambio:
+        st.warning("⚠️ No hay cambios de posición. Modifica al menos una posición para registrar la rotación.")
+
+    if st.button("🔄 Ejecutar Rotación", type="primary", key="rot_btn_ejecutar", disabled=(not hay_cambio or hay_duplicados)):
+        if kilometraje <= 0:
+            st.error("Debes ingresar el kilometraje actual del vehículo")
+        else:
+            df_llantas_update = leer_hoja(SHEET_LLANTAS)
+            df_servicios = leer_hoja(SHEET_SERVICIOS)
+
+            frente = vehiculo_data.get('frente', 'General')
+            tipologia = vehiculo_data.get('tipologia', '')
+
+            llantas_rotadas = []
+            for id_ll, nueva_pos in nuevas_posiciones.items():
+                pos_anterior = posiciones_actuales[id_ll]
+                if nueva_pos != pos_anterior:
+                    # Actualizar posición en tabla de llantas
+                    df_llantas_update.loc[df_llantas_update['id_llanta'].astype(str) == id_ll, 'posicion_actual'] = nueva_pos
+                    df_llantas_update.loc[df_llantas_update['id_llanta'].astype(str) == id_ll, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    llantas_rotadas.append({
+                        'id_llanta': id_ll,
+                        'pos_anterior': pos_anterior,
+                        'pos_nueva': nueva_pos
+                    })
+
+            escribir_hoja(SHEET_LLANTAS, df_llantas_update)
+
+            # Crear un registro de servicio por cada llanta rotada
+            for ll_rot in llantas_rotadas:
+                id_servicio = generar_id_servicio(nit_cliente, frente)
+
+                # Obtener vida actual
+                llanta_row = df_llantas_update[df_llantas_update['id_llanta'].astype(str) == ll_rot['id_llanta']]
+                vida = int(llanta_row['vida_actual'].values[0]) if not llanta_row.empty and 'vida_actual' in llanta_row.columns and pd.notna(llanta_row['vida_actual'].values[0]) else 1
+
+                nuevo_servicio = pd.DataFrame([{
+                    'id_servicio': id_servicio,
+                    'orden_trabajo': orden_trabajo,
+                    'planilla': planilla,
+                    'fecha': datetime.now().strftime("%d/%m/%Y"),
+                    'id_llanta': ll_rot['id_llanta'],
+                    'placa_vehiculo': placa_vehiculo,
+                    'posicion': ll_rot['pos_anterior'],
+                    'vida': vida,
+                    'tipologia': tipologia,
+                    'tipo_servicio': 'rotacion',
+                    'disponibilidad': 'al_piso',
+                    'kilometraje': kilometraje,
+                    'rotacion': 'Sí',
+                    'posicion_nueva': ll_rot['pos_nueva'],
+                    'profundidad_1': 0,
+                    'profundidad_2': 0,
+                    'profundidad_3': 0,
+                    'balanceo': 'No',
+                    'reparacion': 'No',
+                    'despinche': 'No',
+                    'regrabacion': 'No',
+                    'torqueo': 'No',
+                    'inspeccion': 'No',
+                    'insumos': '',
+                    'comentario_fvu': '',
+                    'operario': operario,
+                    'usuario_registro': st.session_state['usuario'],
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }])
+
+                df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
+
+            escribir_hoja(SHEET_SERVICIOS, df_servicios)
+
+            # Crear movimientos de rotación
+            for ll_rot in llantas_rotadas:
+                crear_movimiento(
+                    id_llanta=ll_rot['id_llanta'],
+                    tipo='rotacion',
+                    vida=1,
+                    placa_vehiculo=placa_vehiculo,
+                    posicion=ll_rot['pos_nueva'],
+                    kilometraje=kilometraje,
+                    observaciones=f"Rotación: {ll_rot['pos_anterior']} → {ll_rot['pos_nueva']}",
+                    orden_trabajo=orden_trabajo,
+                    planilla=planilla,
+                    operario=operario
+                )
+
+            resumen = " | ".join([f"{ll['id_llanta']}: {ll['pos_anterior']}→{ll['pos_nueva']}" for ll in llantas_rotadas])
+            st.success(f"✅ Rotación completada: {len(llantas_rotadas)} llanta(s) rotadas")
+            st.info(f"📋 {resumen}")
+            st.balloons()
+            st.rerun()
+
+
+# ============= FUNCIÓN: SERVICIOS INTEGRADOS (WRAPPER CON TABS) =============
+def servicios_integrados():
+    """Función principal que centraliza todos los servicios en tabs"""
+
+    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+    st.header("🛠️ Servicios")
+
+    if not verificar_permiso(3):
+        return
+
+    tab_srv, tab_montaje, tab_desmontaje, tab_alineacion, tab_rotacion = st.tabs([
+        "🛠️ Registro de Servicio",
+        "🔧 Montaje",
+        "🔽 Desmontaje",
+        "📐 Alineación",
+        "🔄 Rotación Completa"
+    ])
+
+    with tab_srv:
+        registrar_servicios(embedded=True)
+
+    with tab_montaje:
+        montaje_llantas(embedded=True)
+
+    with tab_desmontaje:
+        desmontaje_llantas(embedded=True)
+
+    with tab_alineacion:
+        registrar_alineacion(embedded=True)
+
+    with tab_rotacion:
+        rotacion_completa()
+
 
 def reportes():
     """Función para generar reportes y análisis"""
@@ -3167,52 +3428,40 @@ def main():
                 "🚛 Gestión de Vehículos": "vehiculos",
                 "⚙️ Gestión de Llantas": "llantas",
                 "🔍 Estado de Llantas": "estado_llantas",
-                "🔧 Montaje de Llantas": "montaje",
-                "🛠️ Registro de Servicios": "servicios",
-                "📐 Registro de Alineación": "alineacion",
-                "🔽 Desmontaje de Llantas": "desmontaje",
+                "🛠️ Servicios": "servicios_integrados",
                 "📊 Reportes y Análisis": "reportes",
                 "📤 Subir Datos CSV": "subir_csv",
                 "✏️ Editar/Eliminar Datos": "editar_datos",
                 "👥 Gestión de Usuarios": "usuarios",
                 "🔑 Mi Perfil": "mi_perfil"
             }
-        # Nivel 2 (Supervisor): Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar
+        # Nivel 2 (Supervisor): Vehículos, Llantas, Servicios, Reportes, Editar
         elif nivel_usuario == 2:
             opciones_menu = {
                 "🚛 Gestión de Vehículos": "vehiculos",
                 "⚙️ Gestión de Llantas": "llantas",
                 "🔍 Estado de Llantas": "estado_llantas",
-                "🔧 Montaje de Llantas": "montaje",
-                "🛠️ Registro de Servicios": "servicios",
-                "📐 Registro de Alineación": "alineacion",
-                "🔽 Desmontaje de Llantas": "desmontaje",
+                "🛠️ Servicios": "servicios_integrados",
                 "📊 Reportes y Análisis": "reportes",
                 "✏️ Editar/Eliminar Datos": "editar_datos",
                 "🔑 Mi Perfil": "mi_perfil"
             }
-        # Nivel 3 (Operario): Llantas, Montaje, Servicios, Desmontaje, Reportes (solo ver, no editar)
+        # Nivel 3 (Operario): Llantas, Servicios, Reportes (solo ver, no editar)
         elif nivel_usuario == 3:
             opciones_menu = {
                 "⚙️ Gestión de Llantas": "llantas",
                 "🔍 Estado de Llantas": "estado_llantas",
-                "🔧 Montaje de Llantas": "montaje",
-                "🛠️ Registro de Servicios": "servicios",
-                "📐 Registro de Alineación": "alineacion",
-                "🔽 Desmontaje de Llantas": "desmontaje",
+                "🛠️ Servicios": "servicios_integrados",
                 "📊 Reportes y Análisis": "reportes",
                 "🔑 Mi Perfil": "mi_perfil"
             }
-        # Nivel 4 (Admin Cliente): Vehículos, Llantas, Estado, Montaje, Servicios, Desmontaje, Reportes, Editar (NO clientes)
+        # Nivel 4 (Admin Cliente): Vehículos, Llantas, Estado, Servicios, Reportes, Editar (NO clientes)
         elif nivel_usuario == 4:
             opciones_menu = {
                 "🚛 Gestión de Vehículos": "vehiculos",
                 "⚙️ Gestión de Llantas": "llantas",
                 "🔍 Estado de Llantas": "estado_llantas",
-                "🔧 Montaje de Llantas": "montaje",
-                "🛠️ Registro de Servicios": "servicios",
-                "📐 Registro de Alineación": "alineacion",
-                "🔽 Desmontaje de Llantas": "desmontaje",
+                "🛠️ Servicios": "servicios_integrados",
                 "📊 Reportes y Análisis": "reportes",
                 "✏️ Editar/Eliminar Datos": "editar_datos",
                 "🔑 Mi Perfil": "mi_perfil"
@@ -3232,11 +3481,11 @@ def main():
             if st.session_state['nivel'] == 1:
                 st.success("✅ Acceso Total al Sistema")
             elif st.session_state['nivel'] == 2:
-                st.info("✅ Vehículos, Llantas, Montaje, Servicios, Desmontaje, Reportes, Editar datos, Mi Perfil\n❌ Clientes, Subir CSV, Usuarios")
+                st.info("✅ Vehículos, Llantas, Servicios (Montaje, Desmontaje, Alineación, Rotación), Reportes, Editar datos, Mi Perfil\n❌ Clientes, Subir CSV, Usuarios")
             elif st.session_state['nivel'] == 3:
-                st.warning("✅ Llantas, Montaje, Servicios, Desmontaje, Reportes, Mi Perfil (solo registrar)\n❌ Vehículos, Clientes, Editar datos")
+                st.warning("✅ Llantas, Servicios (Montaje, Desmontaje, Alineación, Rotación), Reportes, Mi Perfil (solo registrar)\n❌ Vehículos, Clientes, Editar datos")
             elif st.session_state['nivel'] == 4:
-                st.info("✅ Vehículos, Llantas, Estado, Montaje, Servicios, Desmontaje, Reportes, Editar, Mi Perfil (solo clientes asignados)\n❌ Gestión de Clientes, Subir CSV, Usuarios")
+                st.info("✅ Vehículos, Llantas, Estado, Servicios (Montaje, Desmontaje, Alineación, Rotación), Reportes, Editar, Mi Perfil (solo clientes asignados)\n❌ Gestión de Clientes, Subir CSV, Usuarios")
         
         st.divider()
         
@@ -3253,12 +3502,8 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
     
-    if st.session_state.get('ir_a_desmontaje', False):
-        st.session_state['ir_a_desmontaje'] = False
-        opcion = "🔽 Desmontaje de Llantas"
-    
     opcion_seleccionada = opciones_menu[opcion]
-    
+
     if opcion_seleccionada == "clientes":
         crear_cliente()
     elif opcion_seleccionada == "vehiculos":
@@ -3267,14 +3512,8 @@ def main():
         crear_llantas()
     elif opcion_seleccionada == "estado_llantas":
         ver_llantas_disponibles()
-    elif opcion_seleccionada == "montaje":
-        montaje_llantas()
-    elif opcion_seleccionada == "servicios":
-        registrar_servicios()
-    elif opcion_seleccionada == "alineacion":
-        registrar_alineacion()
-    elif opcion_seleccionada == "desmontaje":
-        desmontaje_llantas()
+    elif opcion_seleccionada == "servicios_integrados":
+        servicios_integrados()
     elif opcion_seleccionada == "reportes":
         reportes()
     elif opcion_seleccionada == "subir_csv":
