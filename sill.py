@@ -1181,24 +1181,74 @@ def ver_llantas_disponibles():
     with tab1:
         st.subheader("Inventario Completo de Llantas")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            opciones_disp = list(df_llantas['disponibilidad'].unique())
-            opciones_disp.insert(0, "Todas")
-            filtro_disp = st.selectbox("Filtrar por Disponibilidad", options=opciones_disp)
-        
-        if filtro_disp == "Todas":
-            df_filtrado = df_llantas
-        else:
-            df_filtrado = df_llantas[df_llantas['disponibilidad'] == filtro_disp]
-        
-        columnas_mostrar = ['id_llanta', 'marca_llanta', 'referencia', 'dimension', 'disponibilidad', 
-                           'placa_vehiculo', 'pos_inicial', 'vida', 'precio_vida1', 'precio_vida2', 
-                           'precio_vida3', 'precio_vida4', 'costo_km_vida1', 'costo_km_vida2', 
-                           'costo_km_vida3', 'costo_km_vida4']
-        
+        # --- FILTROS ---
+        df_clientes_f = leer_hoja(SHEET_CLIENTES)
+        df_clientes_f = filtrar_por_clientes(df_clientes_f, 'nit', clientes_acceso)
+        df_vehiculos_f = leer_hoja(SHEET_VEHICULOS)
+        df_vehiculos_f = filtrar_por_clientes(df_vehiculos_f, 'nit_cliente', clientes_acceso)
+
+        col_f1, col_f2, col_f3 = st.columns(3)
+
+        with col_f1:
+            opciones_clientes = ['Todos'] + list(df_clientes_f['nombre_cliente'].values) if not df_clientes_f.empty else ['Todos']
+            filtro_cliente = st.selectbox("Cliente", options=opciones_clientes, key="estado_filtro_cliente")
+
+        with col_f2:
+            if filtro_cliente != 'Todos' and not df_clientes_f.empty:
+                nit_filtro = df_clientes_f[df_clientes_f['nombre_cliente'] == filtro_cliente]['nit'].values[0]
+                vehiculos_cliente = df_vehiculos_f[df_vehiculos_f['nit_cliente'] == nit_filtro]
+                frentes_disponibles = ['Todos'] + list(vehiculos_cliente['frente'].unique()) if not vehiculos_cliente.empty and 'frente' in vehiculos_cliente.columns else ['Todos']
+            else:
+                frentes_disponibles = ['Todos']
+            filtro_frente = st.selectbox("Frente", options=frentes_disponibles, key="estado_filtro_frente")
+
+        with col_f3:
+            opciones_disp = ['Todas'] + list(df_llantas['disponibilidad'].unique())
+            filtro_disp = st.selectbox("Disponibilidad", options=opciones_disp, key="estado_filtro_disp")
+
+        # --- APLICAR FILTROS ---
+        df_filtrado = df_llantas.copy()
+
+        if filtro_cliente != 'Todos' and not df_clientes_f.empty:
+            nit_filtro = df_clientes_f[df_clientes_f['nombre_cliente'] == filtro_cliente]['nit'].values[0]
+            df_filtrado = df_filtrado[df_filtrado['nit_cliente'] == nit_filtro]
+
+            if filtro_frente != 'Todos':
+                placas_frente = df_vehiculos_f[
+                    (df_vehiculos_f['nit_cliente'] == nit_filtro) &
+                    (df_vehiculos_f['frente'] == filtro_frente)
+                ]['placa_vehiculo'].values
+                col_placa = 'placa_actual' if 'placa_actual' in df_filtrado.columns else 'placa_vehiculo'
+                df_filtrado = df_filtrado[df_filtrado[col_placa].isin(placas_frente)]
+
+        if filtro_disp != 'Todas':
+            df_filtrado = df_filtrado[df_filtrado['disponibilidad'] == filtro_disp]
+
+        # --- ENRIQUECER CON DATOS DE ÚLTIMO SERVICIO ---
+        df_servicios_est = leer_hoja(SHEET_SERVICIOS)
+        if not df_servicios_est.empty and 'id_llanta' in df_servicios_est.columns:
+            col_orden = 'timestamp' if 'timestamp' in df_servicios_est.columns else 'fecha'
+            ultimo_srv = df_servicios_est.sort_values(col_orden).groupby('id_llanta').last().reset_index()
+            cols_srv = ['id_llanta']
+            if 'kilometraje' in ultimo_srv.columns:
+                ultimo_srv = ultimo_srv.rename(columns={'kilometraje': 'ultimo_km'})
+                cols_srv.append('ultimo_km')
+            if 'fecha' in ultimo_srv.columns:
+                ultimo_srv = ultimo_srv.rename(columns={'fecha': 'fecha_ultimo_servicio'})
+                cols_srv.append('fecha_ultimo_servicio')
+            if len(cols_srv) > 1:
+                df_filtrado = df_filtrado.merge(ultimo_srv[cols_srv], on='id_llanta', how='left')
+
+        # --- COLUMNAS A MOSTRAR ---
+        columnas_mostrar = ['id_llanta', 'marca_llanta', 'referencia', 'dimension', 'disponibilidad',
+                           'placa_actual', 'posicion_actual', 'vida_actual',
+                           'ultimo_km', 'fecha_ultimo_servicio',
+                           'precio_vida1', 'precio_vida2', 'precio_vida3', 'precio_vida4',
+                           'costo_km_vida1', 'costo_km_vida2', 'costo_km_vida3', 'costo_km_vida4']
+
         columnas_disponibles = [col for col in columnas_mostrar if col in df_filtrado.columns]
         st.dataframe(df_filtrado[columnas_disponibles], use_container_width=True)
+        st.caption(f"Total llantas: {len(df_filtrado)}")
     
     with tab2:
         st.subheader("✅ Aprobar Reencauches")
