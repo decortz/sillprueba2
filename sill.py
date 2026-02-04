@@ -1940,11 +1940,30 @@ def registrar_servicios():
     col1, col2, col3 = st.columns(3)
 
     with col1:
+        # 5.1 - Mostrar profundidad y km sobre la casilla de selección
+        df_servicios_hist = leer_hoja(SHEET_SERVICIOS)
+        llanta_opciones = llantas_en_piso['id_llanta'].values
+
         id_llanta = st.selectbox(
             "ID Llanta",
-            options=llantas_en_piso['id_llanta'].values,
+            options=llanta_opciones,
             format_func=lambda x: f"ID {x} - Placa: {llantas_en_piso[llantas_en_piso['id_llanta']==x][placa_col].values[0] if placa_col in llantas_en_piso.columns else 'N/A'}"
         )
+
+        # 5.1 - Buscar último servicio de la llanta para mostrar profundidades y km
+        if not df_servicios_hist.empty and 'id_llanta' in df_servicios_hist.columns:
+            servicios_llanta = df_servicios_hist[df_servicios_hist['id_llanta'] == id_llanta]
+            if not servicios_llanta.empty:
+                ultimo_servicio = servicios_llanta.iloc[-1]
+                ult_km = ultimo_servicio.get('kilometraje', 'N/A')
+                ult_p1 = ultimo_servicio.get('profundidad_1', 'N/A')
+                ult_p2 = ultimo_servicio.get('profundidad_2', 'N/A')
+                ult_p3 = ultimo_servicio.get('profundidad_3', 'N/A')
+                st.caption(f"📊 Último km: **{ult_km}** | Prof: Int:**{ult_p1}**mm | Cen:**{ult_p2}**mm | Ext:**{ult_p3}**mm")
+            else:
+                st.caption("📊 Sin servicios previos registrados")
+        else:
+            st.caption("📊 Sin servicios previos registrados")
 
         fecha_servicio = st.date_input("Fecha del Servicio", datetime.now())
         kilometraje = st.number_input("Kilometraje", min_value=0, value=0)
@@ -1958,23 +1977,23 @@ def registrar_servicios():
 
     with col2:
         st.write("**Profundidades (mm)**")
-        profundidad_1 = st.number_input("Profundidad 1", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
-        profundidad_2 = st.number_input("Profundidad 2", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
-        profundidad_3 = st.number_input("Profundidad 3", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
+        profundidad_1 = st.number_input("Profundidad 1 (interna)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
+        profundidad_2 = st.number_input("Profundidad 2 (centro)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
+        profundidad_3 = st.number_input("Profundidad 3 (externa)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
 
     with col3:
         st.write("**Servicios Realizados**")
-        rotacion = st.checkbox("Rotación")
-        if rotacion:
-            nueva_posicion = st.text_input("Nueva Posición")
-        else:
-            nueva_posicion = ""
-
         balanceo = st.checkbox("Balanceo")
         reparacion = st.checkbox("Reparación")
         despinche = st.checkbox("Despinche")
         regrabacion = st.checkbox("Regrabación")
         torqueo = st.checkbox("Torqueo")
+        inspeccion = st.checkbox("Inspección")
+
+        # 5.2 - Casilla insumos cuando se marque balanceo o reparación
+        insumos = ""
+        if balanceo or reparacion:
+            insumos = st.text_input("📦 Insumos utilizados", placeholder="Ej: Parche, pegamento, plomos")
 
     # Obtener NIT del cliente de la llanta seleccionada para filtrar operarios
     llanta_sel_temp = llantas_en_piso[llantas_en_piso['id_llanta'] == id_llanta].iloc[0]
@@ -1989,123 +2008,226 @@ def registrar_servicios():
         operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente")
 
     if st.button("💾 Registrar Servicio", type="primary"):
-        if rotacion and not nueva_posicion:
-            st.error("Si hay rotación, debes especificar la nueva posición")
-        else:
-            df_servicios = leer_hoja(SHEET_SERVICIOS)
-            df_llantas = leer_hoja(SHEET_LLANTAS)
-            df_vehiculos = leer_hoja(SHEET_VEHICULOS)
+        df_servicios = leer_hoja(SHEET_SERVICIOS)
+        df_llantas = leer_hoja(SHEET_LLANTAS)
+        df_vehiculos = leer_hoja(SHEET_VEHICULOS)
 
-            llanta_data = df_llantas[df_llantas['id_llanta'] == id_llanta].iloc[0]
-            # Compatibilidad con nombres de columnas antiguos y nuevos
-            placa = llanta_data.get('placa_actual', llanta_data.get('placa_vehiculo', ''))
-            nit_cliente = llanta_data['nit_cliente']
-            posicion = llanta_data.get('posicion_actual', llanta_data.get('pos_final', ''))
-            vida = llanta_data.get('vida_actual', llanta_data.get('vida', 1))
-            disponibilidad = llanta_data.get('disponibilidad', '')
+        llanta_data = df_llantas[df_llantas['id_llanta'] == id_llanta].iloc[0]
+        placa = llanta_data.get('placa_actual', llanta_data.get('placa_vehiculo', ''))
+        nit_cliente = llanta_data['nit_cliente']
+        posicion = llanta_data.get('posicion_actual', llanta_data.get('pos_final', ''))
+        vida = llanta_data.get('vida_actual', llanta_data.get('vida', 1))
+        disponibilidad = llanta_data.get('disponibilidad', '')
 
-            vehiculo_data = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa].iloc[0]
-            frente = vehiculo_data['frente']
-            tipologia = vehiculo_data.get('tipologia', '')
+        vehiculo_data = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa].iloc[0]
+        frente = vehiculo_data['frente']
+        tipologia = vehiculo_data.get('tipologia', '')
 
-            id_servicio = generar_id_servicio(nit_cliente, frente)
+        id_servicio = generar_id_servicio(nit_cliente, frente)
 
-            # Posición final después del servicio
-            posicion_nueva = nueva_posicion if rotacion and nueva_posicion else posicion
+        # Determinar tipo de servicio principal
+        tipos_servicio = []
+        if balanceo: tipos_servicio.append('Balanceo')
+        if reparacion: tipos_servicio.append('Reparación')
+        if despinche: tipos_servicio.append('Despinche')
+        if regrabacion: tipos_servicio.append('Regrabación')
+        if torqueo: tipos_servicio.append('Torqueo')
+        if inspeccion: tipos_servicio.append('Inspección')
+        tipo_servicio = ', '.join(tipos_servicio) if tipos_servicio else 'Inspección'
 
-            # Si hay rotación, actualizar posicion_actual en llantas
-            if rotacion and nueva_posicion:
-                df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'posicion_actual'] = nueva_posicion
-                escribir_hoja(SHEET_LLANTAS, df_llantas)
+        nuevo_servicio = pd.DataFrame([{
+            'id_servicio': id_servicio,
+            'orden_trabajo': orden_trabajo,
+            'planilla': planilla,
+            'fecha': fecha_servicio.strftime("%d/%m/%Y"),
+            'id_llanta': id_llanta,
+            'placa_vehiculo': placa,
+            'posicion': posicion,
+            'vida': vida,
+            'tipologia': tipologia,
+            'tipo_servicio': tipo_servicio,
+            'disponibilidad': disponibilidad,
+            'kilometraje': kilometraje,
+            'rotacion': 'No',
+            'posicion_nueva': '',
+            'profundidad_1': profundidad_1,
+            'profundidad_2': profundidad_2,
+            'profundidad_3': profundidad_3,
+            'balanceo': 'Sí' if balanceo else 'No',
+            'reparacion': 'Sí' if reparacion else 'No',
+            'despinche': 'Sí' if despinche else 'No',
+            'regrabacion': 'Sí' if regrabacion else 'No',
+            'torqueo': 'Sí' if torqueo else 'No',
+            'inspeccion': 'Sí' if inspeccion else 'No',
+            'insumos': insumos,
+            'comentario_fvu': '',
+            'operario': operario,
+            'usuario_registro': st.session_state['usuario'],
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }])
 
-            # Determinar tipo de servicio principal
-            tipos_servicio = []
-            if rotacion: tipos_servicio.append('Rotación')
-            if balanceo: tipos_servicio.append('Balanceo')
-            if reparacion: tipos_servicio.append('Reparación')
-            if despinche: tipos_servicio.append('Despinche')
-            if regrabacion: tipos_servicio.append('Regrabación')
-            if torqueo: tipos_servicio.append('Torqueo')
-            tipo_servicio = ', '.join(tipos_servicio) if tipos_servicio else 'Inspección'
+        df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
+        escribir_hoja(SHEET_SERVICIOS, df_servicios)
 
-            nuevo_servicio = pd.DataFrame([{
-                'id_servicio': id_servicio,
-                'orden_trabajo': orden_trabajo,
-                'planilla': planilla,
-                'fecha': fecha_servicio.strftime("%d/%m/%Y"),
-                'id_llanta': id_llanta,
-                'placa_vehiculo': placa,
-                'posicion': posicion,  # Posición al momento del servicio
-                'vida': vida,
-                'tipologia': tipologia,
-                'tipo_servicio': tipo_servicio,
-                'disponibilidad': disponibilidad,
-                'kilometraje': kilometraje,
-                'rotacion': 'Sí' if rotacion else 'No',
-                'posicion_nueva': posicion_nueva if rotacion else '',  # Nueva posición si hubo rotación
-                'profundidad_1': profundidad_1,
-                'profundidad_2': profundidad_2,
-                'profundidad_3': profundidad_3,
-                'balanceo': 'Sí' if balanceo else 'No',
-                'reparacion': 'Sí' if reparacion else 'No',
-                'despinche': 'Sí' if despinche else 'No',
-                'regrabacion': 'Sí' if regrabacion else 'No',
-                'torqueo': 'Sí' if torqueo else 'No',
-                'inspeccion': 'No',
-                'insumos': '',
-                'comentario_fvu': '',
-                'operario': operario,
-                'usuario_registro': st.session_state['usuario'],
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }])
-            
-            df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
-            escribir_hoja(SHEET_SERVICIOS, df_servicios)
+        # Si hubo regrabación, incrementar contador en llantas
+        if regrabacion:
+            df_llantas_update = leer_hoja(SHEET_LLANTAS)
+            regrabaciones_actual = df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'].values
+            regrabaciones_actual = int(regrabaciones_actual[0]) if len(regrabaciones_actual) > 0 and pd.notna(regrabaciones_actual[0]) else 0
+            df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'] = regrabaciones_actual + 1
+            escribir_hoja(SHEET_LLANTAS, df_llantas_update)
 
-            # Si hubo regrabación, incrementar contador en llantas
-            if regrabacion:
-                df_llantas_update = leer_hoja(SHEET_LLANTAS)
-                regrabaciones_actual = df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'].values
-                regrabaciones_actual = int(regrabaciones_actual[0]) if len(regrabaciones_actual) > 0 and pd.notna(regrabaciones_actual[0]) else 0
-                df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'] = regrabaciones_actual + 1
-                escribir_hoja(SHEET_LLANTAS, df_llantas_update)
+        # ACTUALIZAR COSTOS/KM AUTOMÁTICAMENTE
+        actualizar_costos_km_llanta(id_llanta)
 
-            # ACTUALIZAR COSTOS/KM AUTOMÁTICAMENTE
-            actualizar_costos_km_llanta(id_llanta)
+        st.success(f"✅ Servicio {id_servicio} registrado exitosamente para llanta ID {id_llanta}")
+        if regrabacion:
+            st.info(f"🔧 Regrabación registrada. Total regrabaciones: {regrabaciones_actual + 1}")
+        st.info("💡 Los costos/km se han actualizado automáticamente")
 
-            st.success(f"✅ Servicio {id_servicio} registrado exitosamente para llanta ID {id_llanta}")
-            if regrabacion:
-                st.info(f"🔧 Regrabación registrada. Total regrabaciones: {regrabaciones_actual + 1}")
-            st.info("💡 Los costos/km se han actualizado automáticamente")
-            
-            st.session_state['servicio_completado'] = True
-            st.session_state['id_llanta_servicio'] = id_llanta
-            st.rerun()
-    
+        st.session_state['servicio_completado'] = True
+        st.session_state['id_llanta_servicio'] = id_llanta
+        st.rerun()
+
     if st.session_state.get('servicio_completado', False):
         st.divider()
         st.subheader("¿Qué deseas hacer ahora?")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             if st.button("➕ Registrar Otro Servicio", use_container_width=True):
                 st.session_state['servicio_completado'] = False
                 st.rerun()
-        
+
         with col2:
             if st.button("🔽 Realizar Desmontaje", use_container_width=True, type="primary"):
                 st.session_state['servicio_completado'] = False
                 st.session_state['ir_a_desmontaje'] = True
                 st.rerun()
-    
+
+    # ============= 5.4 y 5.5: HISTORIAL DE SERVICIOS CON FILTROS =============
     st.divider()
     st.subheader("📋 Historial de Servicios")
     df_servicios = leer_hoja(SHEET_SERVICIOS)
+    df_llantas_hist = leer_hoja(SHEET_LLANTAS)
+
     if not df_servicios.empty:
-        servicios_recientes = df_servicios.sort_values('timestamp', ascending=False).head(10)
-        columnas_mostrar = [col for col in ['id_servicio', 'fecha', 'id_llanta', 'placa_vehiculo', 'pos_inicial', 'vida', 'tipologia', 'kilometraje', 'profundidad_1', 'profundidad_2', 'profundidad_3'] if col in servicios_recientes.columns]
-        st.dataframe(servicios_recientes[columnas_mostrar], use_container_width=True)
+        # Filtrar por clientes accesibles
+        df_vehiculos_hist = leer_hoja(SHEET_VEHICULOS)
+        df_vehiculos_hist = filtrar_por_clientes(df_vehiculos_hist, 'nit_cliente', clientes_acceso)
+        placas_accesibles = df_vehiculos_hist['placa_vehiculo'].unique() if not df_vehiculos_hist.empty else []
+
+        if 'placa_vehiculo' in df_servicios.columns:
+            df_servicios_filtrado = df_servicios[df_servicios['placa_vehiculo'].isin(placas_accesibles)]
+        else:
+            df_servicios_filtrado = df_servicios
+
+        if not df_servicios_filtrado.empty:
+            # 5.5 - FILTROS
+            st.write("**Filtros:**")
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+
+            with col_f1:
+                # Filtro Cliente
+                df_clientes_f = leer_hoja(SHEET_CLIENTES)
+                df_clientes_f = filtrar_por_clientes(df_clientes_f, 'nit', clientes_acceso)
+                opciones_clientes = ['Todos'] + list(df_clientes_f['nombre_cliente'].values) if not df_clientes_f.empty else ['Todos']
+                filtro_cliente = st.selectbox("Cliente", options=opciones_clientes, key="hist_filtro_cliente")
+
+                # Filtro Frente
+                if filtro_cliente != 'Todos' and not df_clientes_f.empty:
+                    nit_filtro = df_clientes_f[df_clientes_f['nombre_cliente'] == filtro_cliente]['nit'].values[0]
+                    vehiculos_cliente = df_vehiculos_hist[df_vehiculos_hist['nit_cliente'] == nit_filtro]
+                    frentes_disponibles = ['Todos'] + list(vehiculos_cliente['frente'].unique()) if not vehiculos_cliente.empty else ['Todos']
+                else:
+                    frentes_disponibles = ['Todos']
+                filtro_frente = st.selectbox("Frente", options=frentes_disponibles, key="hist_filtro_frente")
+
+            with col_f2:
+                # Filtro Fecha Inicial y Final
+                filtro_fecha_ini = st.date_input("Fecha Inicial", value=None, key="hist_fecha_ini")
+                filtro_fecha_fin = st.date_input("Fecha Final", value=None, key="hist_fecha_fin")
+
+            with col_f3:
+                # Filtro Placa
+                placas_opciones = ['Todas'] + list(df_servicios_filtrado['placa_vehiculo'].unique())
+                filtro_placa = st.selectbox("Placa Vehículo", options=placas_opciones, key="hist_filtro_placa")
+
+                # Filtro ID Llanta
+                llantas_opciones_filtro = ['Todas'] + list(df_servicios_filtrado['id_llanta'].unique())
+                filtro_id_llanta = st.selectbox("ID Llanta", options=llantas_opciones_filtro, key="hist_filtro_llanta")
+
+            with col_f4:
+                # Filtro Tipo de Servicio
+                tipos_opciones = ['Todos']
+                if 'tipo_servicio' in df_servicios_filtrado.columns:
+                    tipos_opciones += list(df_servicios_filtrado['tipo_servicio'].dropna().unique())
+                filtro_tipo = st.selectbox("Tipo de Servicio", options=tipos_opciones, key="hist_filtro_tipo")
+
+                # Filtro Operario
+                operarios_opciones = ['Todos']
+                if 'operario' in df_servicios_filtrado.columns:
+                    operarios_opciones += list(df_servicios_filtrado['operario'].dropna().unique())
+                filtro_operario = st.selectbox("Operario", options=operarios_opciones, key="hist_filtro_operario")
+
+            # Aplicar filtros
+            df_resultado = df_servicios_filtrado.copy()
+
+            if filtro_cliente != 'Todos' and not df_clientes_f.empty:
+                nit_filtro = df_clientes_f[df_clientes_f['nombre_cliente'] == filtro_cliente]['nit'].values[0]
+                placas_cliente = df_vehiculos_hist[df_vehiculos_hist['nit_cliente'] == nit_filtro]['placa_vehiculo'].values
+                df_resultado = df_resultado[df_resultado['placa_vehiculo'].isin(placas_cliente)]
+
+                if filtro_frente != 'Todos':
+                    placas_frente = df_vehiculos_hist[(df_vehiculos_hist['nit_cliente'] == nit_filtro) & (df_vehiculos_hist['frente'] == filtro_frente)]['placa_vehiculo'].values
+                    df_resultado = df_resultado[df_resultado['placa_vehiculo'].isin(placas_frente)]
+
+            if filtro_fecha_ini and 'fecha' in df_resultado.columns:
+                df_resultado['fecha_dt'] = pd.to_datetime(df_resultado['fecha'], format='%d/%m/%Y', errors='coerce')
+                df_resultado = df_resultado[df_resultado['fecha_dt'] >= pd.Timestamp(filtro_fecha_ini)]
+
+            if filtro_fecha_fin and 'fecha' in df_resultado.columns:
+                if 'fecha_dt' not in df_resultado.columns:
+                    df_resultado['fecha_dt'] = pd.to_datetime(df_resultado['fecha'], format='%d/%m/%Y', errors='coerce')
+                df_resultado = df_resultado[df_resultado['fecha_dt'] <= pd.Timestamp(filtro_fecha_fin)]
+
+            if filtro_placa != 'Todas':
+                df_resultado = df_resultado[df_resultado['placa_vehiculo'] == filtro_placa]
+
+            if filtro_id_llanta != 'Todas':
+                df_resultado = df_resultado[df_resultado['id_llanta'] == filtro_id_llanta]
+
+            if filtro_tipo != 'Todos' and 'tipo_servicio' in df_resultado.columns:
+                df_resultado = df_resultado[df_resultado['tipo_servicio'] == filtro_tipo]
+
+            if filtro_operario != 'Todos' and 'operario' in df_resultado.columns:
+                df_resultado = df_resultado[df_resultado['operario'] == filtro_operario]
+
+            # Eliminar columna temporal
+            if 'fecha_dt' in df_resultado.columns:
+                df_resultado = df_resultado.drop(columns=['fecha_dt'])
+
+            # 5.4 - Enriquecer con datos de llantas (marca, referencia, dimensión)
+            if not df_llantas_hist.empty:
+                cols_llanta = ['id_llanta']
+                for c in ['marca_llanta', 'referencia', 'dimension']:
+                    if c in df_llantas_hist.columns:
+                        cols_llanta.append(c)
+                df_resultado = df_resultado.merge(df_llantas_hist[cols_llanta], on='id_llanta', how='left', suffixes=('', '_llanta'))
+
+            # 5.4 - Columnas a mostrar
+            columnas_mostrar = ['planilla', 'placa_vehiculo', 'kilometraje', 'marca_llanta', 'referencia',
+                               'dimension', 'id_servicio', 'fecha', 'id_llanta', 'tipo_servicio', 'operario',
+                               'profundidad_1', 'profundidad_2', 'profundidad_3']
+            columnas_disponibles = [col for col in columnas_mostrar if col in df_resultado.columns]
+
+            st.dataframe(df_resultado[columnas_disponibles].sort_values('id_servicio', ascending=False) if 'id_servicio' in df_resultado.columns else df_resultado[columnas_disponibles], use_container_width=True)
+            st.caption(f"Total registros: {len(df_resultado)}")
+        else:
+            st.info("No hay servicios registrados para tus clientes")
+    else:
+        st.info("No hay servicios registrados")
 
 def desmontaje_llantas():
     """Función para desmontar llantas y cambiar disponibilidad"""
