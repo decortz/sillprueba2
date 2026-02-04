@@ -323,7 +323,7 @@ def existe_valor(df, columna, valor):
 
 def crear_movimiento(id_llanta, tipo, vida, placa_vehiculo='', posicion='', kilometraje=0,
                      nueva_disponibilidad='', marca_reencauche='', ref_reencauche='',
-                     precio_reencauche=0, observaciones=''):
+                     precio_reencauche=0, observaciones='', orden_trabajo='', planilla='', operario=''):
     """Crea un nuevo registro en la hoja de movimientos"""
     try:
         df_movimientos = leer_hoja(SHEET_MOVIMIENTOS)
@@ -332,13 +332,16 @@ def crear_movimiento(id_llanta, tipo, vida, placa_vehiculo='', posicion='', kilo
         if df_movimientos.empty or 'id_movimiento' not in df_movimientos.columns:
             nuevo_id = 1
         else:
-            nuevo_id = int(df_movimientos['id_movimiento'].max()) + 1
+            max_id = df_movimientos['id_movimiento'].apply(lambda x: int(x) if str(x).isdigit() else 0).max()
+            nuevo_id = max_id + 1
 
         # Obtener usuario actual
         usuario_actual = st.session_state.get('usuario', 'sistema')
 
         nuevo_movimiento = pd.DataFrame([{
             'id_movimiento': nuevo_id,
+            'orden_trabajo': orden_trabajo,
+            'planilla': planilla,
             'id_llanta': id_llanta,
             'fecha': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'tipo': tipo,
@@ -350,8 +353,9 @@ def crear_movimiento(id_llanta, tipo, vida, placa_vehiculo='', posicion='', kilo
             'marca_reencauche': marca_reencauche,
             'ref_reencauche': ref_reencauche,
             'precio_reencauche': precio_reencauche,
-            'usuario': usuario_actual,
-            'observaciones': observaciones
+            'observaciones': observaciones,
+            'operario': operario,
+            'usuario': usuario_actual
         }])
 
         df_movimientos = pd.concat([df_movimientos, nuevo_movimiento], ignore_index=True)
@@ -544,6 +548,102 @@ def obtener_clientes_accesibles():
         return []
 
     return []
+
+def obtener_operarios_cliente(nit_cliente):
+    """Retorna lista de operarios (usuarios nivel 3) asignados a un cliente específico"""
+    df_usuarios = leer_hoja(SHEET_USUARIOS)
+
+    if df_usuarios.empty:
+        return []
+
+    operarios = []
+    for idx, row in df_usuarios.iterrows():
+        nivel = row.get('nivel', 0)
+        # Solo operarios (nivel 3)
+        if int(nivel) == 3:
+            clientes_asignados = row.get('clientes_asignados', '')
+            if clientes_asignados and pd.notna(clientes_asignados):
+                lista_clientes = [c.strip() for c in str(clientes_asignados).split(',') if c.strip()]
+                if str(nit_cliente) in lista_clientes:
+                    nombre = row.get('nombre', row.get('usuario', 'Sin nombre'))
+                    operarios.append(nombre)
+
+    return operarios
+
+def generar_id_unico(nit_cliente, frente, id_usuario, tipo='vehiculo'):
+    """
+    Genera ID único global para vehículos y llantas.
+    Formato: [2 iniciales cliente][1 inicial frente][consecutivo 3 dígitos]_[ID usuario]
+    Ejemplo: TRB001_V01, MEN002_123
+    """
+    import unicodedata
+
+    df_clientes = leer_hoja(SHEET_CLIENTES)
+
+    # Obtener nombre del cliente
+    cliente_data = df_clientes[df_clientes['nit'] == nit_cliente]
+    if cliente_data.empty:
+        nombre_cliente = "XX"
+    else:
+        nombre_cliente = cliente_data['nombre_cliente'].values[0]
+
+    # Limpiar nombre del cliente: quitar acentos y caracteres especiales
+    nombre_limpio = unicodedata.normalize('NFD', nombre_cliente.upper())
+    nombre_limpio = ''.join(c for c in nombre_limpio if unicodedata.category(c) != 'Mn')
+    nombre_limpio = ''.join(c for c in nombre_limpio if c.isalpha())
+
+    # Tomar las primeras 2 letras del nombre del cliente
+    prefijo_cliente = nombre_limpio[:2] if len(nombre_limpio) >= 2 else nombre_limpio.ljust(2, 'X')
+
+    # Tomar la primera letra del frente (si existe y no es "General")
+    prefijo_frente = ""
+    if frente and frente != "General" and frente.strip():
+        frente_limpio = unicodedata.normalize('NFD', frente.upper())
+        frente_limpio = ''.join(c for c in frente_limpio if unicodedata.category(c) != 'Mn')
+        frente_limpio = ''.join(c for c in frente_limpio if c.isalpha())
+        if frente_limpio:
+            prefijo_frente = frente_limpio[0]
+
+    # Prefijo completo
+    prefijo = prefijo_cliente + prefijo_frente
+
+    # Leer la hoja correspondiente para buscar el máximo consecutivo
+    if tipo == 'vehiculo':
+        df_datos = leer_hoja(SHEET_VEHICULOS)
+        col_id = 'id_vehiculo'
+    else:  # llanta
+        df_datos = leer_hoja(SHEET_LLANTAS)
+        col_id = 'id_llanta'
+
+    # Buscar el máximo consecutivo para este prefijo
+    max_consecutivo = 0
+    if not df_datos.empty and col_id in df_datos.columns:
+        for id_val in df_datos[col_id].values:
+            if pd.notna(id_val):
+                id_str = str(id_val)
+                # Verificar si el ID comienza con el prefijo y tiene el formato correcto
+                if id_str.startswith(prefijo) and '_' in id_str:
+                    try:
+                        # Extraer el consecutivo (los 3 dígitos después del prefijo)
+                        parte_consecutivo = id_str[len(prefijo):id_str.index('_')]
+                        num = int(parte_consecutivo)
+                        if num > max_consecutivo:
+                            max_consecutivo = num
+                    except (ValueError, IndexError):
+                        pass
+
+    # Generar nuevo consecutivo
+    nuevo_consecutivo = max_consecutivo + 1
+
+    # ID del usuario (si está vacío o es 0, usar el consecutivo)
+    id_usuario_str = str(id_usuario).strip() if id_usuario else str(nuevo_consecutivo)
+    if id_usuario_str == "0" or id_usuario_str == "":
+        id_usuario_str = str(nuevo_consecutivo)
+
+    # Generar ID final
+    nuevo_id = f"{prefijo}{nuevo_consecutivo:03d}_{id_usuario_str}"
+
+    return nuevo_id
 
 def generar_id_servicio(nit_cliente, frente):
     """Genera el ID de servicio con formato: 2 letras cliente + letra frente + consecutivo"""
@@ -1412,14 +1512,16 @@ def crear_vehiculos():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            # ID manual - sin restricciones
-            id_vehiculo = st.number_input("ID Vehículo", min_value=1, value=1)
-
             cliente_seleccionado = st.selectbox(
                 "Cliente",
                 options=df_clientes['nit'].values if not df_clientes.empty and 'nit' in df_clientes.columns else [],
                 format_func=lambda x: f"{df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]} - {x}" if not df_clientes.empty else str(x)
             )
+
+            # ID del usuario (opcional) - el sistema generará un ID único
+            id_vehiculo_usuario = st.text_input("ID Vehículo (opcional)", placeholder="Ej: V01, 123, etc.")
+            st.caption("💡 El sistema generará un ID único: [Cliente][Frente][Consecutivo]_[Tu ID]")
+
             marca = st.text_input("Marca (ej: Freightliner)")
         
         with col2:
@@ -1448,11 +1550,12 @@ def crear_vehiculos():
 
                 if existe_valor(df_vehiculos, 'placa_vehiculo', placa_vehiculo):
                     st.error("Esta placa ya está registrada")
-                elif existe_valor(df_vehiculos, 'id_vehiculo', id_vehiculo):
-                    st.error("Este ID de vehículo ya existe")
                 else:
+                    # Generar ID único para el vehículo
+                    id_vehiculo = generar_id_unico(cliente_seleccionado, frente, id_vehiculo_usuario, tipo='vehiculo')
+
                     nuevo_vehiculo = pd.DataFrame([{
-                        'id_vehiculo': id_vehiculo,  # Aquí usa la variable id_vehiculo del input
+                        'id_vehiculo': id_vehiculo,
                         'nit_cliente': cliente_seleccionado,
                         'marca': marca,
                         'linea': linea,
@@ -1467,7 +1570,7 @@ def crear_vehiculos():
                     
                     df_vehiculos = pd.concat([df_vehiculos, nuevo_vehiculo], ignore_index=True)
                     escribir_hoja(SHEET_VEHICULOS, df_vehiculos)
-                    st.success("✅ Dato creado con éxito")
+                    st.success(f"✅ Vehículo creado con éxito - ID: **{id_vehiculo}**")
                     st.balloons()
                     st.rerun()                
       
@@ -1510,7 +1613,7 @@ def crear_llantas():
         st.subheader("Registrar Nueva Llanta")
         
         col1, col2 = st.columns(2)
-        
+
         with col1:
             def format_cliente(x):
                 try:
@@ -1518,20 +1621,39 @@ def crear_llantas():
                     return nombre[0] if len(nombre) > 0 else f"NIT: {x}"
                 except:
                     return f"NIT: {x}"
-            
+
             cliente_seleccionado = st.selectbox(
                 "Cliente",
                 options=df_clientes['nit'].values,
                 format_func=format_cliente,
                 key="llanta_cliente"
             )
+
+            # Obtener frentes del cliente seleccionado
+            frentes_cliente_data = df_clientes[df_clientes['nit']==cliente_seleccionado]['frentes'].values
+            if len(frentes_cliente_data) > 0 and pd.notna(frentes_cliente_data[0]):
+                try:
+                    frentes_cliente = json.loads(frentes_cliente_data[0])
+                except:
+                    frentes_cliente = []
+            else:
+                frentes_cliente = []
+
+            if frentes_cliente:
+                frente_llanta = st.selectbox("Frente", options=frentes_cliente, key="llanta_frente")
+            else:
+                frente_llanta = st.text_input("Frente (sin frentes definidos)", value="General", key="llanta_frente_txt")
+
             marca_llanta = st.text_input("Marca de Llanta")
             referencia = st.text_input("Diseño (ej: XZA2)")
 
         with col2:
             dimension = st.text_input("Dimensión (ej: 295/80R22.5)")
-            max_id = df_llantas['id_llanta'].max() if not df_llantas.empty and 'id_llanta' in df_llantas.columns else 0
-            id_llanta = st.number_input("ID Llanta", min_value=1, value=int(max_id)+1 if pd.notna(max_id) else 1)
+
+            # ID del usuario (opcional) - el sistema generará un ID único
+            id_llanta_usuario = st.text_input("ID Llanta (opcional)", placeholder="Ej: L01, 123, etc.")
+            st.caption("💡 El sistema generará un ID único: [Cliente][Frente][Consecutivo]_[Tu ID]")
+
             precio_vida1 = st.number_input("Precio Vida 1 (Nueva)", min_value=0.0, value=1500000.0, step=10000.0)
 
         if st.button("💾 Registrar Llanta", type="primary"):
@@ -1541,45 +1663,46 @@ def crear_llantas():
                 # Leer datos frescos SIN caché para verificar duplicados
                 df_llantas = leer_hoja_fresco(SHEET_LLANTAS)
 
-                # Verificar si ID llanta ya existe para el mismo cliente
-                llantas_cliente = df_llantas[df_llantas['nit_cliente'].astype(str) == str(cliente_seleccionado)]
-                if not llantas_cliente.empty and id_llanta in llantas_cliente['id_llanta'].values:
-                    st.error("❌ Número de llanta ya existe para este cliente")
-                else:
-                    nueva_llanta = pd.DataFrame([{
-                        'id_llanta': id_llanta,
-                        'nit_cliente': str(cliente_seleccionado),
-                        'marca_llanta': marca_llanta,
-                        'referencia': referencia,
-                        'dimension': dimension,
-                        'vida_actual': 1,
-                        'disponibilidad': 'llanta_nueva',
-                        'kilometros_totales': 0,
-                        'km_ultimo_montaje': 0,
-                        'total_regrabaciones': 0,
-                        'placa_actual': '',
-                        'posicion_actual': '',
-                        'estado_reencauche': '',
-                        'precio_vida1': precio_vida1,
-                        'reencauche1': '',
-                        'precio_vida2': 0,
-                        'reencauche2': '',
-                        'precio_vida3': 0,
-                        'reencauche3': '',
-                        'precio_vida4': 0,
-                        'costo_km_vida1': 0,
-                        'costo_km_vida2': 0,
-                        'costo_km_vida3': 0,
-                        'costo_km_vida4': 0,
-                        'fecha_creacion': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'fecha_modificacion': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }])
+                # Obtener el frente (puede venir de selectbox o text_input)
+                frente_final = frente_llanta if 'frente_llanta' in dir() else "General"
 
-                    df_llantas = pd.concat([df_llantas, nueva_llanta], ignore_index=True)
-                    escribir_hoja(SHEET_LLANTAS, df_llantas)
-                    st.success("✅ Dato creado con éxito")
-                    st.balloons()
-                    st.rerun()
+                # Generar ID único para la llanta
+                id_llanta = generar_id_unico(cliente_seleccionado, frente_final, id_llanta_usuario, tipo='llanta')
+
+                nueva_llanta = pd.DataFrame([{
+                    'id_llanta': id_llanta,
+                    'nit_cliente': str(cliente_seleccionado),
+                    'marca_llanta': marca_llanta,
+                    'referencia': referencia,
+                    'dimension': dimension,
+                    'vida_actual': 1,
+                    'disponibilidad': 'llanta_nueva',
+                    'kilometros_totales': 0,
+                    'km_ultimo_montaje': 0,
+                    'total_regrabaciones': 0,
+                    'placa_actual': '',
+                    'posicion_actual': '',
+                    'estado_reencauche': '',
+                    'precio_vida1': precio_vida1,
+                    'reencauche1': '',
+                    'precio_vida2': 0,
+                    'reencauche2': '',
+                    'precio_vida3': 0,
+                    'reencauche3': '',
+                    'precio_vida4': 0,
+                    'costo_km_vida1': 0,
+                    'costo_km_vida2': 0,
+                    'costo_km_vida3': 0,
+                    'costo_km_vida4': 0,
+                    'fecha_creacion': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'fecha_modificacion': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }])
+
+                df_llantas = pd.concat([df_llantas, nueva_llanta], ignore_index=True)
+                escribir_hoja(SHEET_LLANTAS, df_llantas)
+                st.success(f"✅ Llanta creada con éxito - ID: **{id_llanta}**")
+                st.balloons()
+                st.rerun()
     
     with tab2:
         df_llantas = leer_hoja(SHEET_LLANTAS)
@@ -1626,6 +1749,15 @@ def montaje_llantas():
         st.warning("⚠️ No hay llantas registradas o no se pueden cargar los datos")
         return
 
+    # Campos de orden de trabajo y planilla (primeras columnas)
+    col_ot1, col_ot2 = st.columns(2)
+    with col_ot1:
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="montaje_ot")
+    with col_ot2:
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="montaje_planilla")
+
+    st.divider()
+
     col1, col2 = st.columns(2)
 
     # PRIMERO: Seleccionar vehículo
@@ -1665,6 +1797,14 @@ def montaje_llantas():
     with col4:
         kilometraje = st.number_input("4️⃣ Kilometraje del Vehículo", min_value=0, value=0)
 
+    # Obtener operarios del cliente
+    operarios_disponibles = obtener_operarios_cliente(nit_cliente_vehiculo)
+
+    if operarios_disponibles:
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="montaje_operario")
+    else:
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="montaje_operario_txt")
+
     if st.button("🔧 Montar Llanta", type="primary"):
         if id_llanta is None:
             st.error("No hay llantas disponibles para montar")
@@ -1696,7 +1836,10 @@ def montaje_llantas():
                 vida=vida_actual,
                 placa_vehiculo=placa_vehiculo,
                 posicion=posicion,
-                kilometraje=kilometraje
+                kilometraje=kilometraje,
+                orden_trabajo=orden_trabajo,
+                planilla=planilla,
+                operario=operario
             )
 
             st.success(f"✅ Llanta ID {id_llanta} montada en vehículo {placa_vehiculo} - Posición: {posicion} - Km: {kilometraje:,}")
@@ -1737,11 +1880,20 @@ def registrar_servicios():
 
     st.subheader("Formulario de Servicio")
 
-    col1, col2, col3 = st.columns(3)
-
     # Determinar nombre de columna de placa (compatibilidad)
     placa_col = 'placa_actual' if 'placa_actual' in llantas_en_piso.columns else 'placa_vehiculo'
     pos_col = 'posicion_actual' if 'posicion_actual' in llantas_en_piso.columns else 'pos_final'
+
+    # Campos de orden de trabajo y planilla (primeras columnas)
+    col_ot1, col_ot2 = st.columns(2)
+    with col_ot1:
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001")
+    with col_ot2:
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla")
+
+    st.divider()
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         id_llanta = st.selectbox(
@@ -1780,6 +1932,18 @@ def registrar_servicios():
         regrabacion = st.checkbox("Regrabación")
         torqueo = st.checkbox("Torqueo")
 
+    # Obtener NIT del cliente de la llanta seleccionada para filtrar operarios
+    llanta_sel_temp = llantas_en_piso[llantas_en_piso['id_llanta'] == id_llanta].iloc[0]
+    nit_cliente_temp = llanta_sel_temp['nit_cliente']
+    operarios_disponibles = obtener_operarios_cliente(nit_cliente_temp)
+
+    # Selector de operario
+    st.divider()
+    if operarios_disponibles:
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles)
+    else:
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente")
+
     if st.button("💾 Registrar Servicio", type="primary"):
         if rotacion and not nueva_posicion:
             st.error("Si hay rotación, debes especificar la nueva posición")
@@ -1810,14 +1974,27 @@ def registrar_servicios():
                 df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'posicion_actual'] = nueva_posicion
                 escribir_hoja(SHEET_LLANTAS, df_llantas)
 
+            # Determinar tipo de servicio principal
+            tipos_servicio = []
+            if rotacion: tipos_servicio.append('Rotación')
+            if balanceo: tipos_servicio.append('Balanceo')
+            if reparacion: tipos_servicio.append('Reparación')
+            if despinche: tipos_servicio.append('Despinche')
+            if regrabacion: tipos_servicio.append('Regrabación')
+            if torqueo: tipos_servicio.append('Torqueo')
+            tipo_servicio = ', '.join(tipos_servicio) if tipos_servicio else 'Inspección'
+
             nuevo_servicio = pd.DataFrame([{
                 'id_servicio': id_servicio,
+                'orden_trabajo': orden_trabajo,
+                'planilla': planilla,
                 'fecha': fecha_servicio.strftime("%d/%m/%Y"),
                 'id_llanta': id_llanta,
                 'placa_vehiculo': placa,
                 'posicion': posicion,  # Posición al momento del servicio
                 'vida': vida,
                 'tipologia': tipologia,
+                'tipo_servicio': tipo_servicio,
                 'disponibilidad': disponibilidad,
                 'kilometraje': kilometraje,
                 'rotacion': 'Sí' if rotacion else 'No',
@@ -1830,7 +2007,10 @@ def registrar_servicios():
                 'despinche': 'Sí' if despinche else 'No',
                 'regrabacion': 'Sí' if regrabacion else 'No',
                 'torqueo': 'Sí' if torqueo else 'No',
+                'inspeccion': 'No',
+                'insumos': '',
                 'comentario_fvu': '',
+                'operario': operario,
                 'usuario_registro': st.session_state['usuario'],
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }])
@@ -1908,6 +2088,15 @@ def desmontaje_llantas():
         st.warning("⚠️ No hay llantas montadas para desmontar")
         return
 
+    # Campos de orden de trabajo y planilla (primeras columnas)
+    col_ot1, col_ot2 = st.columns(2)
+    with col_ot1:
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="desmontaje_ot")
+    with col_ot2:
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="desmontaje_planilla")
+
+    st.divider()
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1941,6 +2130,15 @@ def desmontaje_llantas():
     if nueva_disponibilidad == 'FVU':
         with col4:
             razon_fvu = st.text_input("Razón de FVU (Fuera de Uso)")
+
+    # Obtener operarios del cliente
+    nit_cliente_llanta = llanta_sel['nit_cliente']
+    operarios_disponibles = obtener_operarios_cliente(nit_cliente_llanta)
+
+    if operarios_disponibles:
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="desmontaje_operario")
+    else:
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="desmontaje_operario_txt")
 
     if st.button("🔽 Desmontar Llanta", type="primary"):
         if kilometraje <= 0:
@@ -1991,7 +2189,10 @@ def desmontaje_llantas():
                 posicion=posicion_actual,
                 kilometraje=kilometraje,
                 nueva_disponibilidad=nueva_disponibilidad,
-                observaciones=observaciones
+                observaciones=observaciones,
+                orden_trabajo=orden_trabajo,
+                planilla=planilla,
+                operario=operario
             )
 
             st.success(mensaje)
@@ -2046,6 +2247,15 @@ def registrar_alineacion():
     with tab1:
         st.subheader("Registrar Nueva Alineación")
 
+        # Campos de orden de trabajo y planilla (primeras columnas)
+        col_ot1, col_ot2 = st.columns(2)
+        with col_ot1:
+            orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="alineacion_ot")
+        with col_ot2:
+            planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="alineacion_planilla")
+
+        st.divider()
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -2072,6 +2282,15 @@ def registrar_alineacion():
 
             observaciones = st.text_area("Observaciones", key="alineacion_obs")
 
+        # Obtener operarios del cliente
+        nit_cliente_vehiculo = vehiculo_data['nit_cliente']
+        operarios_disponibles = obtener_operarios_cliente(nit_cliente_vehiculo)
+
+        if operarios_disponibles:
+            operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="alineacion_operario")
+        else:
+            operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="alineacion_operario_txt")
+
         if st.button("💾 Registrar Alineación", type="primary", key="btn_registrar_alineacion"):
             df_alineaciones = leer_hoja(SHEET_ALINEACIONES)
 
@@ -2085,11 +2304,14 @@ def registrar_alineacion():
 
             nueva_alineacion = pd.DataFrame([{
                 'id_alineacion': nuevo_id,
+                'orden_trabajo': orden_trabajo,
+                'planilla': planilla,
                 'fecha': fecha_alineacion.strftime("%d/%m/%Y"),
                 'placa_vehiculo': placa_vehiculo,
                 'nit_cliente': nit_cliente,
                 'kilometraje': kilometraje,
                 'observaciones': observaciones,
+                'operario': operario,
                 'usuario_registro': st.session_state['usuario'],
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }])
