@@ -177,6 +177,54 @@ def limpiar_clientes_asignados(valor):
                 nits.append(nit)
     return ','.join(nits)
 
+def normalizar_columnas_id(df):
+    """Normaliza todas las columnas de ID a tipo string para evitar inconsistencias"""
+    columnas_id = ['id_vehiculo', 'id_llanta', 'id_servicio', 'id_movimiento',
+                   'id_alineacion', 'id_usuario', 'placa_vehiculo', 'usuario']
+
+    for col in columnas_id:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() != 'nan' else '')
+
+    return df
+
+def generar_id_usuario(nombre, df_usuarios):
+    """Genera ID de usuario automático: 3 primeras letras del nombre + consecutivo de 3 dígitos"""
+    import unicodedata
+
+    # Limpiar el nombre: quitar acentos y caracteres especiales
+    nombre_limpio = unicodedata.normalize('NFD', nombre.upper())
+    nombre_limpio = ''.join(c for c in nombre_limpio if unicodedata.category(c) != 'Mn')
+    nombre_limpio = ''.join(c for c in nombre_limpio if c.isalpha() or c.isspace())
+
+    # Tomar las primeras 3 letras del primer nombre
+    partes = nombre_limpio.split()
+    if partes:
+        prefijo = partes[0][:3].upper()
+    else:
+        prefijo = "USR"
+
+    # Asegurar que tenga exactamente 3 caracteres
+    prefijo = prefijo.ljust(3, 'X')[:3]
+
+    # Buscar el máximo consecutivo existente para este prefijo
+    max_consecutivo = 0
+    if not df_usuarios.empty and 'id_usuario' in df_usuarios.columns:
+        for id_usr in df_usuarios['id_usuario'].values:
+            if pd.notna(id_usr) and str(id_usr).startswith(prefijo):
+                try:
+                    num = int(str(id_usr)[3:])
+                    if num > max_consecutivo:
+                        max_consecutivo = num
+                except (ValueError, IndexError):
+                    pass
+
+    # Generar nuevo ID
+    nuevo_consecutivo = max_consecutivo + 1
+    nuevo_id = f"{prefijo}{nuevo_consecutivo:03d}"
+
+    return nuevo_id
+
 def leer_hoja(nombre_hoja):
     """Lee una hoja de Google Sheets y retorna un DataFrame"""
     try:
@@ -197,6 +245,8 @@ def leer_hoja(nombre_hoja):
         # Convertir clientes_asignados a string limpio (manejar floats como 123456789.0)
         if 'clientes_asignados' in df.columns:
             df['clientes_asignados'] = df['clientes_asignados'].apply(limpiar_clientes_asignados)
+        # Normalizar todas las columnas ID a string
+        df = normalizar_columnas_id(df)
         return df
     except Exception as e:
         st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
@@ -221,6 +271,8 @@ def leer_hoja_fresco(nombre_hoja):
         # Convertir clientes_asignados a string limpio
         if 'clientes_asignados' in df.columns:
             df['clientes_asignados'] = df['clientes_asignados'].apply(limpiar_clientes_asignados)
+        # Normalizar todas las columnas ID a string
+        df = normalizar_columnas_id(df)
         return df
     except Exception as e:
         st.error(f"Error leyendo {nombre_hoja}: {str(e)}")
@@ -316,10 +368,10 @@ def inicializar_datos():
     df_usuarios = leer_hoja(SHEET_USUARIOS)
     if df_usuarios.empty:
         usuarios_default = pd.DataFrame([
-            {'usuario': 'admin', 'password': 'admin123', 'nivel': 1, 'nombre': 'Administrador', 'clientes_asignados': ''},
-            {'usuario': 'supervisor', 'password': 'super123', 'nivel': 2, 'nombre': 'Supervisor', 'clientes_asignados': ''},
-            {'usuario': 'admin_cliente', 'password': 'cliente123', 'nivel': 4, 'nombre': 'Admin Cliente', 'clientes_asignados': ''},
-            {'usuario': 'operario', 'password': 'oper123', 'nivel': 3, 'nombre': 'Operario', 'clientes_asignados': ''}
+            {'id_usuario': 'ADM001', 'usuario': 'admin', 'password': 'admin123', 'nivel': 1, 'nombre': 'Administrador', 'clientes_asignados': ''},
+            {'id_usuario': 'SUP001', 'usuario': 'supervisor', 'password': 'super123', 'nivel': 2, 'nombre': 'Supervisor', 'clientes_asignados': ''},
+            {'id_usuario': 'ADM002', 'usuario': 'admin_cliente', 'password': 'cliente123', 'nivel': 4, 'nombre': 'Admin Cliente', 'clientes_asignados': ''},
+            {'id_usuario': 'OPE001', 'usuario': 'operario', 'password': 'oper123', 'nivel': 3, 'nombre': 'Operario', 'clientes_asignados': ''}
         ])
         escribir_hoja(SHEET_USUARIOS, usuarios_default)
 
@@ -2447,17 +2499,21 @@ def gestion_usuarios():
                 if existe_valor(df_usuarios, 'usuario', nuevo_usuario):
                     st.error("Este nombre de usuario ya existe")
                 else:
+                    # Generar ID de usuario automático
+                    id_usuario = generar_id_usuario(nuevo_nombre, df_usuarios)
+
                     nuevo_user = pd.DataFrame([{
+                        'id_usuario': id_usuario,
                         'usuario': nuevo_usuario,
                         'password': nueva_password,
                         'nivel': nuevo_nivel,
                         'nombre': nuevo_nombre,
                         'clientes_asignados': clientes_seleccionados
                     }])
-                    
+
                     df_usuarios = pd.concat([df_usuarios, nuevo_user], ignore_index=True)
                     escribir_hoja(SHEET_USUARIOS, df_usuarios)
-                    st.success("✅ Dato creado con éxito")
+                    st.success(f"✅ Usuario creado con éxito - ID: {id_usuario}")
                     st.balloons()
                     st.rerun()
     
@@ -2467,6 +2523,7 @@ def gestion_usuarios():
         
         for idx, row in df_usuarios.iterrows():
             with st.expander(f"👤 {row.get('nombre', 'N/A')} - Nivel {row.get('nivel', 'N/A')}"):
+                st.write(f"**ID Usuario:** {row.get('id_usuario', 'N/A')}")
                 st.write(f"**Usuario:** {row.get('usuario', 'N/A')}")
                 nivel = row.get('nivel', 0)
                 st.write(f"**Nivel:** {nivel} - {'Administrador' if nivel==1 else 'Supervisor' if nivel==2 else 'Operario' if nivel==3 else 'Admin Cliente'}")
@@ -2502,7 +2559,7 @@ def gestion_usuarios():
             usuario_editar = st.selectbox(
                 "Seleccionar Usuario",
                 options=df_usuarios['usuario'].values,
-                format_func=lambda x: f"{df_usuarios[df_usuarios['usuario']==x]['nombre'].values[0]} ({x}) - Nivel {df_usuarios[df_usuarios['usuario']==x]['nivel'].values[0]}",
+                format_func=lambda x: f"[{df_usuarios[df_usuarios['usuario']==x]['id_usuario'].values[0] if 'id_usuario' in df_usuarios.columns and pd.notna(df_usuarios[df_usuarios['usuario']==x]['id_usuario'].values[0]) else 'Sin ID'}] {df_usuarios[df_usuarios['usuario']==x]['nombre'].values[0]} ({x}) - Nivel {df_usuarios[df_usuarios['usuario']==x]['nivel'].values[0]}",
                 key="select_usuario_editar"
             )
 
@@ -2513,6 +2570,11 @@ def gestion_usuarios():
                 st.warning("⚠️ No puedes editar tu propio usuario mientras estás conectado")
             else:
                 st.write("**Datos del Usuario:**")
+
+                # Mostrar ID de usuario (no editable)
+                id_usuario_actual = usuario_data.get('id_usuario', 'Sin ID')
+                st.info(f"🆔 **ID Usuario:** {id_usuario_actual} (no editable)")
+
                 col1, col2 = st.columns(2)
 
                 with col1:
