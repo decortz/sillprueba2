@@ -1724,14 +1724,15 @@ def crear_llantas():
 # permanecen igual que en el código original con ajustes menores para compatibilidad.
 # Se incluyen las firmas principales:
 
-def montaje_llantas():
+def montaje_llantas(embedded=False):
     """Función para montar llantas en vehículos"""
 
-    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
-    st.header("🔧 Montaje de Llantas")
+    if not embedded:
+        st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+        st.header("🔧 Montaje de Llantas")
 
-    if not verificar_permiso(3):
-        return
+        if not verificar_permiso(3):
+            return
 
     df_llantas = leer_hoja(SHEET_LLANTAS)
     df_vehiculos = leer_hoja(SHEET_VEHICULOS)
@@ -2012,16 +2013,26 @@ def registrar_servicios():
         df_llantas = leer_hoja(SHEET_LLANTAS)
         df_vehiculos = leer_hoja(SHEET_VEHICULOS)
 
-        llanta_data = df_llantas[df_llantas['id_llanta'] == id_llanta].iloc[0]
+        llanta_data = df_llantas[df_llantas['id_llanta'] == id_llanta]
+        if llanta_data.empty:
+            st.error("No se encontró la llanta seleccionada")
+            st.stop()
+
+        llanta_data = llanta_data.iloc[0]
         placa = llanta_data.get('placa_actual', llanta_data.get('placa_vehiculo', ''))
         nit_cliente = llanta_data['nit_cliente']
         posicion = llanta_data.get('posicion_actual', llanta_data.get('pos_final', ''))
         vida = llanta_data.get('vida_actual', llanta_data.get('vida', 1))
         disponibilidad = llanta_data.get('disponibilidad', '')
 
-        vehiculo_data = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa].iloc[0]
-        frente = vehiculo_data['frente']
-        tipologia = vehiculo_data.get('tipologia', '')
+        vehiculo_match = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa]
+        if vehiculo_match.empty:
+            frente = 'General'
+            tipologia = ''
+        else:
+            vehiculo_data = vehiculo_match.iloc[0]
+            frente = vehiculo_data.get('frente', 'General')
+            tipologia = vehiculo_data.get('tipologia', '')
 
         id_servicio = generar_id_servicio(nit_cliente, frente)
 
