@@ -1724,14 +1724,15 @@ def crear_llantas():
 # permanecen igual que en el código original con ajustes menores para compatibilidad.
 # Se incluyen las firmas principales:
 
-def montaje_llantas():
+def montaje_llantas(embedded=False):
     """Función para montar llantas en vehículos"""
 
-    st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
-    st.header("🔧 Montaje de Llantas")
+    if not embedded:
+        st.image("https://elchorroco.wordpress.com/wp-content/uploads/2025/10/megallanta-logo.png", width=200)
+        st.header("🔧 Montaje de Llantas")
 
-    if not verificar_permiso(3):
-        return
+        if not verificar_permiso(3):
+            return
 
     df_llantas = leer_hoja(SHEET_LLANTAS)
     df_vehiculos = leer_hoja(SHEET_VEHICULOS)
