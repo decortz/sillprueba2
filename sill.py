@@ -323,7 +323,7 @@ def existe_valor(df, columna, valor):
 
 def crear_movimiento(id_llanta, tipo, vida, placa_vehiculo='', posicion='', kilometraje=0,
                      nueva_disponibilidad='', marca_reencauche='', ref_reencauche='',
-                     precio_reencauche=0, observaciones=''):
+                     precio_reencauche=0, observaciones='', orden_trabajo='', planilla='', operario=''):
     """Crea un nuevo registro en la hoja de movimientos"""
     try:
         df_movimientos = leer_hoja(SHEET_MOVIMIENTOS)
@@ -332,13 +332,16 @@ def crear_movimiento(id_llanta, tipo, vida, placa_vehiculo='', posicion='', kilo
         if df_movimientos.empty or 'id_movimiento' not in df_movimientos.columns:
             nuevo_id = 1
         else:
-            nuevo_id = int(df_movimientos['id_movimiento'].max()) + 1
+            max_id = df_movimientos['id_movimiento'].apply(lambda x: int(x) if str(x).isdigit() else 0).max()
+            nuevo_id = max_id + 1
 
         # Obtener usuario actual
         usuario_actual = st.session_state.get('usuario', 'sistema')
 
         nuevo_movimiento = pd.DataFrame([{
             'id_movimiento': nuevo_id,
+            'orden_trabajo': orden_trabajo,
+            'planilla': planilla,
             'id_llanta': id_llanta,
             'fecha': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'tipo': tipo,
@@ -350,8 +353,9 @@ def crear_movimiento(id_llanta, tipo, vida, placa_vehiculo='', posicion='', kilo
             'marca_reencauche': marca_reencauche,
             'ref_reencauche': ref_reencauche,
             'precio_reencauche': precio_reencauche,
-            'usuario': usuario_actual,
-            'observaciones': observaciones
+            'observaciones': observaciones,
+            'operario': operario,
+            'usuario': usuario_actual
         }])
 
         df_movimientos = pd.concat([df_movimientos, nuevo_movimiento], ignore_index=True)
@@ -544,6 +548,27 @@ def obtener_clientes_accesibles():
         return []
 
     return []
+
+def obtener_operarios_cliente(nit_cliente):
+    """Retorna lista de operarios (usuarios nivel 3) asignados a un cliente específico"""
+    df_usuarios = leer_hoja(SHEET_USUARIOS)
+
+    if df_usuarios.empty:
+        return []
+
+    operarios = []
+    for idx, row in df_usuarios.iterrows():
+        nivel = row.get('nivel', 0)
+        # Solo operarios (nivel 3)
+        if int(nivel) == 3:
+            clientes_asignados = row.get('clientes_asignados', '')
+            if clientes_asignados and pd.notna(clientes_asignados):
+                lista_clientes = [c.strip() for c in str(clientes_asignados).split(',') if c.strip()]
+                if str(nit_cliente) in lista_clientes:
+                    nombre = row.get('nombre', row.get('usuario', 'Sin nombre'))
+                    operarios.append(nombre)
+
+    return operarios
 
 def generar_id_servicio(nit_cliente, frente):
     """Genera el ID de servicio con formato: 2 letras cliente + letra frente + consecutivo"""
@@ -1626,6 +1651,15 @@ def montaje_llantas():
         st.warning("⚠️ No hay llantas registradas o no se pueden cargar los datos")
         return
 
+    # Campos de orden de trabajo y planilla (primeras columnas)
+    col_ot1, col_ot2 = st.columns(2)
+    with col_ot1:
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="montaje_ot")
+    with col_ot2:
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="montaje_planilla")
+
+    st.divider()
+
     col1, col2 = st.columns(2)
 
     # PRIMERO: Seleccionar vehículo
@@ -1665,6 +1699,14 @@ def montaje_llantas():
     with col4:
         kilometraje = st.number_input("4️⃣ Kilometraje del Vehículo", min_value=0, value=0)
 
+    # Obtener operarios del cliente
+    operarios_disponibles = obtener_operarios_cliente(nit_cliente_vehiculo)
+
+    if operarios_disponibles:
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="montaje_operario")
+    else:
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="montaje_operario_txt")
+
     if st.button("🔧 Montar Llanta", type="primary"):
         if id_llanta is None:
             st.error("No hay llantas disponibles para montar")
@@ -1696,7 +1738,10 @@ def montaje_llantas():
                 vida=vida_actual,
                 placa_vehiculo=placa_vehiculo,
                 posicion=posicion,
-                kilometraje=kilometraje
+                kilometraje=kilometraje,
+                orden_trabajo=orden_trabajo,
+                planilla=planilla,
+                operario=operario
             )
 
             st.success(f"✅ Llanta ID {id_llanta} montada en vehículo {placa_vehiculo} - Posición: {posicion} - Km: {kilometraje:,}")
@@ -1737,11 +1782,20 @@ def registrar_servicios():
 
     st.subheader("Formulario de Servicio")
 
-    col1, col2, col3 = st.columns(3)
-
     # Determinar nombre de columna de placa (compatibilidad)
     placa_col = 'placa_actual' if 'placa_actual' in llantas_en_piso.columns else 'placa_vehiculo'
     pos_col = 'posicion_actual' if 'posicion_actual' in llantas_en_piso.columns else 'pos_final'
+
+    # Campos de orden de trabajo y planilla (primeras columnas)
+    col_ot1, col_ot2 = st.columns(2)
+    with col_ot1:
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001")
+    with col_ot2:
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla")
+
+    st.divider()
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         id_llanta = st.selectbox(
@@ -1780,6 +1834,18 @@ def registrar_servicios():
         regrabacion = st.checkbox("Regrabación")
         torqueo = st.checkbox("Torqueo")
 
+    # Obtener NIT del cliente de la llanta seleccionada para filtrar operarios
+    llanta_sel_temp = llantas_en_piso[llantas_en_piso['id_llanta'] == id_llanta].iloc[0]
+    nit_cliente_temp = llanta_sel_temp['nit_cliente']
+    operarios_disponibles = obtener_operarios_cliente(nit_cliente_temp)
+
+    # Selector de operario
+    st.divider()
+    if operarios_disponibles:
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles)
+    else:
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente")
+
     if st.button("💾 Registrar Servicio", type="primary"):
         if rotacion and not nueva_posicion:
             st.error("Si hay rotación, debes especificar la nueva posición")
@@ -1810,14 +1876,27 @@ def registrar_servicios():
                 df_llantas.loc[df_llantas['id_llanta'] == id_llanta, 'posicion_actual'] = nueva_posicion
                 escribir_hoja(SHEET_LLANTAS, df_llantas)
 
+            # Determinar tipo de servicio principal
+            tipos_servicio = []
+            if rotacion: tipos_servicio.append('Rotación')
+            if balanceo: tipos_servicio.append('Balanceo')
+            if reparacion: tipos_servicio.append('Reparación')
+            if despinche: tipos_servicio.append('Despinche')
+            if regrabacion: tipos_servicio.append('Regrabación')
+            if torqueo: tipos_servicio.append('Torqueo')
+            tipo_servicio = ', '.join(tipos_servicio) if tipos_servicio else 'Inspección'
+
             nuevo_servicio = pd.DataFrame([{
                 'id_servicio': id_servicio,
+                'orden_trabajo': orden_trabajo,
+                'planilla': planilla,
                 'fecha': fecha_servicio.strftime("%d/%m/%Y"),
                 'id_llanta': id_llanta,
                 'placa_vehiculo': placa,
                 'posicion': posicion,  # Posición al momento del servicio
                 'vida': vida,
                 'tipologia': tipologia,
+                'tipo_servicio': tipo_servicio,
                 'disponibilidad': disponibilidad,
                 'kilometraje': kilometraje,
                 'rotacion': 'Sí' if rotacion else 'No',
@@ -1830,7 +1909,10 @@ def registrar_servicios():
                 'despinche': 'Sí' if despinche else 'No',
                 'regrabacion': 'Sí' if regrabacion else 'No',
                 'torqueo': 'Sí' if torqueo else 'No',
+                'inspeccion': 'No',
+                'insumos': '',
                 'comentario_fvu': '',
+                'operario': operario,
                 'usuario_registro': st.session_state['usuario'],
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }])
@@ -1908,6 +1990,15 @@ def desmontaje_llantas():
         st.warning("⚠️ No hay llantas montadas para desmontar")
         return
 
+    # Campos de orden de trabajo y planilla (primeras columnas)
+    col_ot1, col_ot2 = st.columns(2)
+    with col_ot1:
+        orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="desmontaje_ot")
+    with col_ot2:
+        planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="desmontaje_planilla")
+
+    st.divider()
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1941,6 +2032,15 @@ def desmontaje_llantas():
     if nueva_disponibilidad == 'FVU':
         with col4:
             razon_fvu = st.text_input("Razón de FVU (Fuera de Uso)")
+
+    # Obtener operarios del cliente
+    nit_cliente_llanta = llanta_sel['nit_cliente']
+    operarios_disponibles = obtener_operarios_cliente(nit_cliente_llanta)
+
+    if operarios_disponibles:
+        operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="desmontaje_operario")
+    else:
+        operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="desmontaje_operario_txt")
 
     if st.button("🔽 Desmontar Llanta", type="primary"):
         if kilometraje <= 0:
@@ -1991,7 +2091,10 @@ def desmontaje_llantas():
                 posicion=posicion_actual,
                 kilometraje=kilometraje,
                 nueva_disponibilidad=nueva_disponibilidad,
-                observaciones=observaciones
+                observaciones=observaciones,
+                orden_trabajo=orden_trabajo,
+                planilla=planilla,
+                operario=operario
             )
 
             st.success(mensaje)
@@ -2046,6 +2149,15 @@ def registrar_alineacion():
     with tab1:
         st.subheader("Registrar Nueva Alineación")
 
+        # Campos de orden de trabajo y planilla (primeras columnas)
+        col_ot1, col_ot2 = st.columns(2)
+        with col_ot1:
+            orden_trabajo = st.text_input("📋 Orden de Trabajo", placeholder="Ej: OT-2024-001", key="alineacion_ot")
+        with col_ot2:
+            planilla = st.text_input("📄 Planilla", placeholder="Número de planilla", key="alineacion_planilla")
+
+        st.divider()
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -2072,6 +2184,15 @@ def registrar_alineacion():
 
             observaciones = st.text_area("Observaciones", key="alineacion_obs")
 
+        # Obtener operarios del cliente
+        nit_cliente_vehiculo = vehiculo_data['nit_cliente']
+        operarios_disponibles = obtener_operarios_cliente(nit_cliente_vehiculo)
+
+        if operarios_disponibles:
+            operario = st.selectbox("👷 Operario", options=operarios_disponibles, key="alineacion_operario")
+        else:
+            operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="alineacion_operario_txt")
+
         if st.button("💾 Registrar Alineación", type="primary", key="btn_registrar_alineacion"):
             df_alineaciones = leer_hoja(SHEET_ALINEACIONES)
 
@@ -2085,11 +2206,14 @@ def registrar_alineacion():
 
             nueva_alineacion = pd.DataFrame([{
                 'id_alineacion': nuevo_id,
+                'orden_trabajo': orden_trabajo,
+                'planilla': planilla,
                 'fecha': fecha_alineacion.strftime("%d/%m/%Y"),
                 'placa_vehiculo': placa_vehiculo,
                 'nit_cliente': nit_cliente,
                 'kilometraje': kilometraje,
                 'observaciones': observaciones,
+                'operario': operario,
                 'usuario_registro': st.session_state['usuario'],
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }])
