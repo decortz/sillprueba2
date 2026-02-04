@@ -1842,15 +1842,59 @@ def montaje_llantas():
                 operario=operario
             )
 
-            st.success(f"✅ Llanta ID {id_llanta} montada en vehículo {placa_vehiculo} - Posición: {posicion} - Km: {kilometraje:,}")
-            st.rerun()
+            # Crear registro en servicios para el montaje
+            df_servicios = leer_hoja(SHEET_SERVICIOS)
+            df_vehiculos_srv = leer_hoja(SHEET_VEHICULOS)
 
-    st.divider()
-    st.subheader("📊 Llantas Montadas")
-    llantas_montadas = df_llantas[df_llantas['disponibilidad'] == 'al_piso']
-    if not llantas_montadas.empty:
-        columnas_mostrar = [col for col in ['id_llanta', 'marca_llanta', 'dimension', 'placa_actual', 'posicion_actual', 'vida_actual'] if col in llantas_montadas.columns]
-        st.dataframe(llantas_montadas[columnas_mostrar], use_container_width=True)
+            # Obtener datos del vehículo
+            vehiculo_data = df_vehiculos_srv[df_vehiculos_srv['placa_vehiculo'] == placa_vehiculo].iloc[0]
+            frente = vehiculo_data.get('frente', 'General')
+            tipologia = vehiculo_data.get('tipologia', '')
+
+            # Obtener datos de la llanta
+            llanta_data = df_llantas[df_llantas['id_llanta'] == id_llanta].iloc[0]
+            disponibilidad_anterior = llanta_data.get('disponibilidad', 'llanta_nueva')
+
+            # Generar ID de servicio
+            id_servicio = generar_id_servicio(nit_cliente_vehiculo, frente)
+
+            nuevo_servicio = pd.DataFrame([{
+                'id_servicio': id_servicio,
+                'orden_trabajo': orden_trabajo,
+                'planilla': planilla,
+                'fecha': datetime.now().strftime("%d/%m/%Y"),
+                'id_llanta': id_llanta,
+                'placa_vehiculo': placa_vehiculo,
+                'posicion': posicion,
+                'vida': vida_actual,
+                'tipologia': tipologia,
+                'tipo_servicio': 'montaje',
+                'disponibilidad': 'al_piso',
+                'kilometraje': kilometraje,
+                'rotacion': 'No',
+                'posicion_nueva': '',
+                'profundidad_1': 0,
+                'profundidad_2': 0,
+                'profundidad_3': 0,
+                'balanceo': 'No',
+                'reparacion': 'No',
+                'despinche': 'No',
+                'regrabacion': 'No',
+                'torqueo': 'No',
+                'inspeccion': 'No',
+                'insumos': '',
+                'comentario_fvu': '',
+                'operario': operario,
+                'usuario_registro': st.session_state['usuario'],
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }])
+
+            df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
+            escribir_hoja(SHEET_SERVICIOS, df_servicios)
+
+            st.success(f"✅ Llanta ID {id_llanta} montada en vehículo {placa_vehiculo} - Posición: {posicion} - Km: {kilometraje:,}")
+            st.info(f"📋 Servicio de montaje registrado: {id_servicio}")
+            st.rerun()
 
 def registrar_servicios():
     """Función para registrar servicios de mantenimiento"""
@@ -2195,25 +2239,56 @@ def desmontaje_llantas():
                 operario=operario
             )
 
+            # Crear registro en servicios para el desmontaje
+            df_servicios = leer_hoja(SHEET_SERVICIOS)
+            df_vehiculos_srv = leer_hoja(SHEET_VEHICULOS)
+
+            # Obtener datos del vehículo
+            vehiculo_srv = df_vehiculos_srv[df_vehiculos_srv['placa_vehiculo'] == placa_actual]
+            frente = vehiculo_srv.iloc[0].get('frente', 'General') if not vehiculo_srv.empty else 'General'
+            tipologia = vehiculo_srv.iloc[0].get('tipologia', '') if not vehiculo_srv.empty else ''
+
+            # Generar ID de servicio
+            id_servicio = generar_id_servicio(nit_cliente_llanta, frente)
+
+            nuevo_servicio = pd.DataFrame([{
+                'id_servicio': id_servicio,
+                'orden_trabajo': orden_trabajo,
+                'planilla': planilla,
+                'fecha': datetime.now().strftime("%d/%m/%Y"),
+                'id_llanta': id_llanta,
+                'placa_vehiculo': placa_actual,
+                'posicion': posicion_actual,
+                'vida': vida_actual,
+                'tipologia': tipologia,
+                'tipo_servicio': 'desmontaje',
+                'disponibilidad': nueva_disponibilidad,
+                'kilometraje': kilometraje,
+                'rotacion': 'No',
+                'posicion_nueva': '',
+                'profundidad_1': 0,
+                'profundidad_2': 0,
+                'profundidad_3': 0,
+                'balanceo': 'No',
+                'reparacion': 'No',
+                'despinche': 'No',
+                'regrabacion': 'No',
+                'torqueo': 'No',
+                'inspeccion': 'No',
+                'insumos': '',
+                'comentario_fvu': observaciones,
+                'operario': operario,
+                'usuario_registro': st.session_state['usuario'],
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }])
+
+            df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
+            escribir_hoja(SHEET_SERVICIOS, df_servicios)
+
             st.success(mensaje)
             st.info(f"📊 Km recorridos este período: **{km_recorridos:,.0f}** | Total acumulado: **{nuevo_total_km:,.0f}** km")
+            st.info(f"📋 Servicio de desmontaje registrado: {id_servicio}")
             st.rerun()
-
-    st.divider()
-    st.subheader("📋 Llantas pendientes de aprobación de reencauche")
-    st.caption("Para aprobar reencauches con todos los datos, ve a **Estado de Llantas → Aprobar Reencauches**")
-
-    llantas_reencauche = df_llantas[
-        (df_llantas['disponibilidad'] == 'reencauche') &
-        (df_llantas['estado_reencauche'] == 'condicionada_planta')
-    ]
-
-    if not llantas_reencauche.empty:
-        columnas_mostrar = [col for col in ['id_llanta', 'marca_llanta', 'dimension', 'vida_actual'] if col in llantas_reencauche.columns]
-        st.dataframe(llantas_reencauche[columnas_mostrar], use_container_width=True)
-        st.info(f"📋 {len(llantas_reencauche)} llantas esperando aprobación de planta")
-    else:
-        st.info("✨ No hay llantas pendientes de aprobación")
 
 # ============= FUNCIÓN: REGISTRAR ALINEACIÓN =============
 def registrar_alineacion():
