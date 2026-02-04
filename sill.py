@@ -1803,8 +1803,13 @@ def montaje_llantas(embedded=False):
         col_pos = 'posicion_actual' if 'posicion_actual' in llantas_montadas_vehiculo.columns else 'pos_final'
         if col_pos in llantas_montadas_vehiculo.columns:
             for _, row in llantas_montadas_vehiculo.iterrows():
-                pos = str(row.get(col_pos, '')).strip().upper()
-                if pos:
+                pos_raw = row.get(col_pos, '')
+                # Normalizar: si es numérico (1.0, 2.0), convertir a entero string ("1", "2")
+                try:
+                    pos = str(int(float(pos_raw)))
+                except (ValueError, TypeError):
+                    pos = str(pos_raw).strip().upper()
+                if pos and pos != 'nan' and pos != '':
                     posiciones_ocupadas[pos] = str(row['id_llanta'])
 
     col3, col4 = st.columns(2)
@@ -1820,7 +1825,12 @@ def montaje_llantas(embedded=False):
         kilometraje = st.number_input("4️⃣ Kilometraje del Vehículo", min_value=0, value=0)
 
     # Validar si la posición ingresada ya está ocupada
-    posicion_normalizada = posicion.strip().upper() if posicion else ''
+    # Normalizar igual que las posiciones almacenadas
+    posicion_stripped = posicion.strip() if posicion else ''
+    try:
+        posicion_normalizada = str(int(float(posicion_stripped)))
+    except (ValueError, TypeError):
+        posicion_normalizada = posicion_stripped.upper()
     posicion_ocupada = posicion_normalizada in posiciones_ocupadas if posicion_normalizada else False
     if posicion_ocupada:
         st.error(f"⚠️ La posición **{posicion_normalizada}** ya está ocupada por la llanta **{posiciones_ocupadas[posicion_normalizada]}**. Desmonta esa llanta primero o elige otra posición.")
