@@ -2604,7 +2604,8 @@ def registrar_alineacion(embedded=False):
             if df_alineaciones.empty or 'id_alineacion' not in df_alineaciones.columns:
                 nuevo_id = 1
             else:
-                nuevo_id = int(df_alineaciones['id_alineacion'].max()) + 1
+                ids_num = pd.to_numeric(df_alineaciones['id_alineacion'], errors='coerce')
+                nuevo_id = int(ids_num.max()) + 1 if ids_num.notna().any() else 1
 
             nit_cliente = vehiculo_data['nit_cliente']
 
