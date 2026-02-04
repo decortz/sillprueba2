@@ -1792,11 +1792,38 @@ def montaje_llantas(embedded=False):
                 format_func=lambda x: f"ID {x} - {llantas_disponibles[llantas_disponibles['id_llanta']==x]['marca_llanta'].values[0]} {llantas_disponibles[llantas_disponibles['id_llanta']==x]['dimension'].values[0]} (Vida {int(llantas_disponibles[llantas_disponibles['id_llanta']==x]['vida_actual'].values[0]) if 'vida_actual' in llantas_disponibles.columns and pd.notna(llantas_disponibles[llantas_disponibles['id_llanta']==x]['vida_actual'].values[0]) else 1})"
             )
 
+    # Verificar posiciones ocupadas en el vehículo seleccionado
+    col_placa = 'placa_actual' if 'placa_actual' in df_llantas.columns else 'placa_vehiculo'
+    llantas_montadas_vehiculo = df_llantas[
+        (df_llantas['disponibilidad'] == 'al_piso') &
+        (df_llantas[col_placa].astype(str) == str(placa_vehiculo))
+    ]
+    posiciones_ocupadas = {}
+    if not llantas_montadas_vehiculo.empty:
+        col_pos = 'posicion_actual' if 'posicion_actual' in llantas_montadas_vehiculo.columns else 'pos_final'
+        if col_pos in llantas_montadas_vehiculo.columns:
+            for _, row in llantas_montadas_vehiculo.iterrows():
+                pos = str(row.get(col_pos, '')).strip().upper()
+                if pos:
+                    posiciones_ocupadas[pos] = str(row['id_llanta'])
+
     col3, col4 = st.columns(2)
     with col3:
         posicion = st.text_input("3️⃣ Posición (ej: DI, DD, TI1)")
+        # Mostrar posiciones actualmente ocupadas como referencia
+        if posiciones_ocupadas:
+            ocupadas_texto = " | ".join([f"**{pos}**: {id_ll}" for pos, id_ll in sorted(posiciones_ocupadas.items())])
+            st.caption(f"📍 Posiciones ocupadas: {ocupadas_texto}")
+        else:
+            st.caption("📍 No hay llantas montadas en este vehículo")
     with col4:
         kilometraje = st.number_input("4️⃣ Kilometraje del Vehículo", min_value=0, value=0)
+
+    # Validar si la posición ingresada ya está ocupada
+    posicion_normalizada = posicion.strip().upper() if posicion else ''
+    posicion_ocupada = posicion_normalizada in posiciones_ocupadas if posicion_normalizada else False
+    if posicion_ocupada:
+        st.error(f"⚠️ La posición **{posicion_normalizada}** ya está ocupada por la llanta **{posiciones_ocupadas[posicion_normalizada]}**. Desmonta esa llanta primero o elige otra posición.")
 
     # Obtener operarios del cliente
     operarios_disponibles = obtener_operarios_cliente(nit_cliente_vehiculo)
@@ -1811,6 +1838,8 @@ def montaje_llantas(embedded=False):
             st.error("No hay llantas disponibles para montar")
         elif not posicion:
             st.error("Debes especificar la posición")
+        elif posicion_ocupada:
+            st.error(f"No se puede montar: la posición **{posicion_normalizada}** ya está ocupada por la llanta **{posiciones_ocupadas[posicion_normalizada]}**")
         elif kilometraje <= 0:
             st.error("Debes ingresar el kilometraje actual del vehículo")
         else:
