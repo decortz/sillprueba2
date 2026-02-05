@@ -323,17 +323,20 @@ def existe_valor(df, columna, valor):
 
 def crear_movimiento(id_llanta, tipo, vida, placa_vehiculo='', posicion='', kilometraje=0,
                      nueva_disponibilidad='', marca_reencauche='', ref_reencauche='',
-                     precio_reencauche=0, observaciones='', orden_trabajo='', planilla='', operario=''):
+                     precio_reencauche=0, observaciones='', orden_trabajo='', planilla='', operario='',
+                     nit_cliente=''):
     """Crea un nuevo registro en la hoja de movimientos"""
     try:
         df_movimientos = leer_hoja(SHEET_MOVIMIENTOS)
 
-        # Generar ID de movimiento
-        if df_movimientos.empty or 'id_movimiento' not in df_movimientos.columns:
-            nuevo_id = 1
-        else:
-            max_id = df_movimientos['id_movimiento'].apply(lambda x: int(x) if str(x).isdigit() else 0).max()
-            nuevo_id = max_id + 1
+        # Obtener nit_cliente de la llanta si no se proporcionó
+        if not nit_cliente:
+            df_llantas_mov = leer_hoja(SHEET_LLANTAS)
+            llanta_match = df_llantas_mov[df_llantas_mov['id_llanta'] == id_llanta]
+            nit_cliente = llanta_match['nit_cliente'].values[0] if not llanta_match.empty else ''
+
+        # Generar ID de movimiento con formato id_cliente
+        nuevo_id = generar_id_movimiento(nit_cliente) if nit_cliente else 'M001'
 
         # Obtener usuario actual
         usuario_actual = st.session_state.get('usuario', 'sistema')
@@ -570,116 +573,123 @@ def obtener_operarios_cliente(nit_cliente):
 
     return operarios
 
-def generar_id_unico(nit_cliente, frente, id_usuario, tipo='vehiculo'):
+def obtener_id_cliente(nit_cliente):
+    """Obtiene el id_cliente a partir del NIT. Retorna el id_cliente o 'XX00' si no existe."""
+    df_clientes = leer_hoja(SHEET_CLIENTES)
+    if df_clientes.empty or 'id_cliente' not in df_clientes.columns:
+        return 'XX00'
+    cliente_data = df_clientes[df_clientes['nit'] == nit_cliente]
+    if cliente_data.empty:
+        return 'XX00'
+    id_cliente = str(cliente_data['id_cliente'].values[0]).strip()
+    return id_cliente if id_cliente and id_cliente != 'nan' else 'XX00'
+
+def generar_id_cliente(nombre_cliente, df_clientes):
     """
-    Genera ID único global para vehículos y llantas.
-    Formato: [2 iniciales cliente][1 inicial frente][consecutivo 3 dígitos]_[ID usuario]
-    Ejemplo: TRB001_V01, MEN002_123
+    Genera ID de cliente: 2 primeras letras del nombre + consecutivo 2 dígitos.
+    Ejemplo: TR01, TR02, ME01
     """
     import unicodedata
 
-    df_clientes = leer_hoja(SHEET_CLIENTES)
-
-    # Obtener nombre del cliente
-    cliente_data = df_clientes[df_clientes['nit'] == nit_cliente]
-    if cliente_data.empty:
-        nombre_cliente = "XX"
-    else:
-        nombre_cliente = cliente_data['nombre_cliente'].values[0]
-
-    # Limpiar nombre del cliente: quitar acentos y caracteres especiales
     nombre_limpio = unicodedata.normalize('NFD', nombre_cliente.upper())
     nombre_limpio = ''.join(c for c in nombre_limpio if unicodedata.category(c) != 'Mn')
     nombre_limpio = ''.join(c for c in nombre_limpio if c.isalpha())
 
-    # Tomar las primeras 2 letras del nombre del cliente
-    prefijo_cliente = nombre_limpio[:2] if len(nombre_limpio) >= 2 else nombre_limpio.ljust(2, 'X')
+    prefijo = nombre_limpio[:2] if len(nombre_limpio) >= 2 else nombre_limpio.ljust(2, 'X')
 
-    # Tomar la primera letra del frente (si existe y no es "General")
-    prefijo_frente = ""
-    if frente and frente != "General" and frente.strip():
-        frente_limpio = unicodedata.normalize('NFD', frente.upper())
-        frente_limpio = ''.join(c for c in frente_limpio if unicodedata.category(c) != 'Mn')
-        frente_limpio = ''.join(c for c in frente_limpio if c.isalpha())
-        if frente_limpio:
-            prefijo_frente = frente_limpio[0]
-
-    # Prefijo completo
-    prefijo = prefijo_cliente + prefijo_frente
-
-    # Leer la hoja correspondiente para buscar el máximo consecutivo
-    if tipo == 'vehiculo':
-        df_datos = leer_hoja(SHEET_VEHICULOS)
-        col_id = 'id_vehiculo'
-    else:  # llanta
-        df_datos = leer_hoja(SHEET_LLANTAS)
-        col_id = 'id_llanta'
-
-    # Buscar el máximo consecutivo para este prefijo
+    # Buscar máximo consecutivo para este prefijo
     max_consecutivo = 0
-    if not df_datos.empty and col_id in df_datos.columns:
-        for id_val in df_datos[col_id].values:
+    if not df_clientes.empty and 'id_cliente' in df_clientes.columns:
+        for id_val in df_clientes['id_cliente'].values:
             if pd.notna(id_val):
-                id_str = str(id_val)
-                # Verificar si el ID comienza con el prefijo y tiene el formato correcto
-                if id_str.startswith(prefijo) and '_' in id_str:
+                id_str = str(id_val).strip()
+                if id_str.startswith(prefijo) and len(id_str) >= len(prefijo) + 1:
                     try:
-                        # Extraer el consecutivo (los 3 dígitos después del prefijo)
-                        parte_consecutivo = id_str[len(prefijo):id_str.index('_')]
-                        num = int(parte_consecutivo)
+                        num = int(id_str[len(prefijo):])
                         if num > max_consecutivo:
                             max_consecutivo = num
                     except (ValueError, IndexError):
                         pass
 
-    # Generar nuevo consecutivo
-    nuevo_consecutivo = max_consecutivo + 1
-
-    # ID del usuario (si está vacío o es 0, usar el consecutivo)
-    id_usuario_str = str(id_usuario).strip() if id_usuario else str(nuevo_consecutivo)
-    if id_usuario_str == "0" or id_usuario_str == "":
-        id_usuario_str = str(nuevo_consecutivo)
-
-    # Generar ID final
-    nuevo_id = f"{prefijo}{nuevo_consecutivo:03d}_{id_usuario_str}"
-
+    nuevo_id = f"{prefijo}{max_consecutivo + 1:02d}"
     return nuevo_id
 
-def generar_id_servicio(nit_cliente, frente):
-    """Genera el ID de servicio con formato: 2 letras cliente + letra frente + consecutivo"""
-    df_clientes = leer_hoja(SHEET_CLIENTES)
+def _max_consecutivo_por_prefijo(df, col_id, prefijo_completo):
+    """Busca el máximo consecutivo en una columna para un prefijo dado (ej: TR01_V)."""
+    max_num = 0
+    if not df.empty and col_id in df.columns:
+        for id_val in df[col_id].values:
+            if pd.notna(id_val):
+                id_str = str(id_val).strip()
+                if id_str.startswith(prefijo_completo):
+                    try:
+                        num = int(id_str[len(prefijo_completo):])
+                        if num > max_num:
+                            max_num = num
+                    except (ValueError, IndexError):
+                        pass
+    return max_num
+
+def generar_id_unico(nit_cliente, frente=None, id_usuario=None, tipo='vehiculo'):
+    """
+    Genera ID único para vehículos y llantas basado en id_cliente.
+    Formato vehículo: {id_cliente}_V{2 dígitos}  → TR01_V01
+    Formato llanta:   {id_cliente}_LL{2 dígitos}  → TR01_LL01
+    """
+    id_cliente = obtener_id_cliente(nit_cliente)
+
+    if tipo == 'vehiculo':
+        sufijo = '_V'
+        df_datos = leer_hoja(SHEET_VEHICULOS)
+        col_id = 'id_vehiculo'
+    else:
+        sufijo = '_LL'
+        df_datos = leer_hoja(SHEET_LLANTAS)
+        col_id = 'id_llanta'
+
+    prefijo_completo = id_cliente + sufijo
+    max_num = _max_consecutivo_por_prefijo(df_datos, col_id, prefijo_completo)
+
+    return f"{prefijo_completo}{max_num + 1:02d}"
+
+def generar_id_servicio(nit_cliente, frente=None):
+    """
+    Genera ID de servicio basado en id_cliente.
+    Formato: {id_cliente}_S{4 dígitos}  → TR01_S0001
+    """
+    id_cliente = obtener_id_cliente(nit_cliente)
     df_servicios = leer_hoja(SHEET_SERVICIOS)
 
-    nombre_cliente = df_clientes[df_clientes['nit'] == nit_cliente]['nombre_cliente'].values[0]
+    prefijo_completo = id_cliente + '_S'
+    max_num = _max_consecutivo_por_prefijo(df_servicios, 'id_servicio', prefijo_completo)
 
-    nombre_limpio = nombre_cliente.replace(" ", "")
-    prefijo_cliente = nombre_limpio[:2].upper()
+    return f"{prefijo_completo}{max_num + 1:04d}"
 
-    if frente and frente != "General":
-        prefijo_frente = frente[0].upper()
-    else:
-        prefijo_frente = ""
+def generar_id_alineacion(nit_cliente):
+    """
+    Genera ID de alineación basado en id_cliente.
+    Formato: {id_cliente}_A{3 dígitos}  → TR01_A001
+    """
+    id_cliente = obtener_id_cliente(nit_cliente)
+    df_alineaciones = leer_hoja(SHEET_ALINEACIONES)
 
-    prefijo = prefijo_cliente + prefijo_frente
+    prefijo_completo = id_cliente + '_A'
+    max_num = _max_consecutivo_por_prefijo(df_alineaciones, 'id_alineacion', prefijo_completo)
 
-    # Verificar que df_servicios tiene la columna necesaria
-    if df_servicios.empty or 'id_servicio' not in df_servicios.columns:
-        consecutivo = 1
-    else:
-        servicios_prefijo = df_servicios[df_servicios['id_servicio'].str.startswith(prefijo, na=False)]
+    return f"{prefijo_completo}{max_num + 1:03d}"
 
-        if servicios_prefijo.empty:
-            consecutivo = 1
-        else:
-            try:
-                numeros = servicios_prefijo['id_servicio'].str.extract(r'(\d+)$')[0].astype(int)
-                consecutivo = numeros.max() + 1
-            except:
-                consecutivo = 1
+def generar_id_movimiento(nit_cliente):
+    """
+    Genera ID de movimiento basado en id_cliente.
+    Formato: {id_cliente}_M{3 dígitos}  → TR01_M001
+    """
+    id_cliente = obtener_id_cliente(nit_cliente)
+    df_movimientos = leer_hoja(SHEET_MOVIMIENTOS)
 
-    id_servicio = f"{prefijo}{consecutivo:04d}"
+    prefijo_completo = id_cliente + '_M'
+    max_num = _max_consecutivo_por_prefijo(df_movimientos, 'id_movimiento', prefijo_completo)
 
-    return id_servicio
+    return f"{prefijo_completo}{max_num + 1:03d}"
 
 # ============= SISTEMA DE AUTENTICACIÓN =============
 def login():
@@ -746,7 +756,7 @@ def subir_datos_csv():
             df_nuevo = pd.read_csv(archivo, encoding='utf-8')
             
             st.write("**Vista previa de los datos:**")
-            st.dataframe(df_nuevo.head(), use_container_width=True)
+            st.dataframe(df_nuevo.head(), use_container_width=True, hide_index=True)
             
             col1, col2 = st.columns(2)
             
@@ -811,25 +821,27 @@ def eliminar_corregir_datos():
                     key="select_vehiculo_editar")
                 
                 vehiculo = df_vehiculos[df_vehiculos['id_vehiculo'] == id_editar].iloc[0]
-                
+
+                st.info(f"**Vehículo seleccionado:** {id_editar} | Placa: {vehiculo.get('placa_vehiculo', 'N/A')} | Marca: {vehiculo.get('marca', 'N/A')} | Línea: {vehiculo.get('linea', 'N/A')} | Estado: {vehiculo.get('estado', 'N/A')}")
+
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    nueva_marca = st.text_input("Marca", value=vehiculo.get('marca', ''), key="edit_marca_vehiculo")
+                    nueva_marca = st.text_input("Marca", value=vehiculo.get('marca', ''), key=f"edit_marca_vehiculo_{id_editar}")
                     nuevo_estado = st.selectbox("Estado",
                         options=['no_asignado', 'activo', 'fuera_de_servicio'],
                         index=['no_asignado', 'activo', 'fuera_de_servicio'].index(vehiculo.get('estado', 'no_asignado')),
-                        key="edit_estado_vehiculo")
+                        key=f"edit_estado_vehiculo_{id_editar}")
 
                 with col2:
-                    nueva_linea = st.text_input("Línea", value=vehiculo.get('linea', ''), key="edit_linea_vehiculo")
-                    nuevo_km_inicial = st.number_input("Kilometraje Inicial", value=float(vehiculo.get('kilometraje_inicial', 0)), key="edit_km_vehiculo")
+                    nueva_linea = st.text_input("Línea", value=vehiculo.get('linea', ''), key=f"edit_linea_vehiculo_{id_editar}")
+                    nuevo_km_inicial = st.number_input("Kilometraje Inicial", value=float(vehiculo.get('kilometraje_inicial', 0)), key=f"edit_km_vehiculo_{id_editar}")
 
                 with col3:
-                    nueva_tipologia = st.text_input("Tipología", value=vehiculo.get('tipologia', ''), key="edit_tipologia_vehiculo")
+                    nueva_tipologia = st.text_input("Tipología", value=vehiculo.get('tipologia', ''), key=f"edit_tipologia_vehiculo_{id_editar}")
                     nuevo_calculo = st.selectbox("Cálculo KMs",
                         options=['odometro', 'promedio', 'tabla'],
                         index=['odometro', 'promedio', 'tabla'].index(vehiculo.get('calculo_kms', 'odometro')),
-                        key="edit_calculo_vehiculo")
+                        key=f"edit_calculo_vehiculo_{id_editar}")
                 
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
@@ -869,21 +881,23 @@ def eliminar_corregir_datos():
                 id_editar = st.selectbox("Seleccionar Llanta", df_llantas['id_llanta'].values, key="select_llanta_editar")
                 
                 llanta = df_llantas[df_llantas['id_llanta'] == id_editar].iloc[0]
-                
+
+                st.info(f"**Llanta seleccionada:** {id_editar} | Marca: {llanta.get('marca_llanta', 'N/A')} | Ref: {llanta.get('referencia', 'N/A')} | Dimensión: {llanta.get('dimension', 'N/A')} | Disponibilidad: {llanta.get('disponibilidad', 'N/A')}")
+
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    nueva_marca = st.text_input("Marca", value=llanta.get('marca_llanta', ''), key="edit_marca_llanta")
-                    nueva_referencia = st.text_input("Referencia", value=llanta.get('referencia', ''), key="edit_referencia_llanta")
+                    nueva_marca = st.text_input("Marca", value=llanta.get('marca_llanta', ''), key=f"edit_marca_llanta_{id_editar}")
+                    nueva_referencia = st.text_input("Referencia", value=llanta.get('referencia', ''), key=f"edit_referencia_llanta_{id_editar}")
 
                 with col2:
-                    nueva_dimension = st.text_input("Dimensión", value=llanta.get('dimension', ''), key="edit_dimension_llanta")
-                    precio_v1 = st.number_input("Precio Vida 1", value=float(llanta.get('precio_vida1', 0)), key="edit_precio_v1_llanta")
+                    nueva_dimension = st.text_input("Dimensión", value=llanta.get('dimension', ''), key=f"edit_dimension_llanta_{id_editar}")
+                    precio_v1 = st.number_input("Precio Vida 1", value=float(llanta.get('precio_vida1', 0)), key=f"edit_precio_v1_llanta_{id_editar}")
 
                 with col3:
-                    precio_v2 = st.number_input("Precio Vida 2", value=float(llanta.get('precio_vida2', 0)), key="edit_precio_v2_llanta")
-                    precio_v3 = st.number_input("Precio Vida 3", value=float(llanta.get('precio_vida3', 0)), key="edit_precio_v3_llanta")
+                    precio_v2 = st.number_input("Precio Vida 2", value=float(llanta.get('precio_vida2', 0)), key=f"edit_precio_v2_llanta_{id_editar}")
+                    precio_v3 = st.number_input("Precio Vida 3", value=float(llanta.get('precio_vida3', 0)), key=f"edit_precio_v3_llanta_{id_editar}")
 
-                precio_v4 = st.number_input("Precio Vida 4", value=float(llanta.get('precio_vida4', 0)), key="edit_precio_v4_llanta")
+                precio_v4 = st.number_input("Precio Vida 4", value=float(llanta.get('precio_vida4', 0)), key=f"edit_precio_v4_llanta_{id_editar}")
                 
                 st.info("💡 Los costos/km se recalculan automáticamente al guardar cambios")
                 
@@ -924,7 +938,8 @@ def eliminar_corregir_datos():
 
             servicio = df_servicios[df_servicios['id_servicio'] == id_servicio_editar].iloc[0]
 
-            st.write("**Datos del Servicio:**")
+            st.info(f"**Servicio seleccionado:** {id_servicio_editar} | Llanta: {servicio.get('id_llanta', 'N/A')} | Placa: {servicio.get('placa_vehiculo', 'N/A')} | Fecha: {servicio.get('fecha', 'N/A')} | Tipo: {servicio.get('tipo_servicio', 'N/A')}")
+
             col1, col2, col3 = st.columns(3)
 
             with col1:
@@ -934,11 +949,11 @@ def eliminar_corregir_datos():
                     fecha_parsed = datetime.strptime(str(fecha_actual), "%d/%m/%Y").date() if fecha_actual else datetime.now().date()
                 except:
                     fecha_parsed = datetime.now().date()
-                nueva_fecha = st.date_input("Fecha", value=fecha_parsed, key="edit_fecha_servicio")
+                nueva_fecha = st.date_input("Fecha", value=fecha_parsed, key=f"edit_fecha_servicio_{id_servicio_editar}")
 
                 # Kilometraje
                 km_actual = int(servicio.get('kilometraje', 0)) if pd.notna(servicio.get('kilometraje')) else 0
-                nuevo_km = st.number_input("Kilometraje", min_value=0, value=km_actual, key="edit_km_servicio")
+                nuevo_km = st.number_input("Kilometraje", min_value=0, value=km_actual, key=f"edit_km_servicio_{id_servicio_editar}")
 
             with col2:
                 st.write("**Profundidades (mm)**")
@@ -946,26 +961,26 @@ def eliminar_corregir_datos():
                 prof2_actual = float(servicio.get('profundidad_2', 10.0)) if pd.notna(servicio.get('profundidad_2')) else 10.0
                 prof3_actual = float(servicio.get('profundidad_3', 10.0)) if pd.notna(servicio.get('profundidad_3')) else 10.0
 
-                nueva_prof1 = st.number_input("Profundidad 1", min_value=0.0, max_value=30.0, value=prof1_actual, step=0.5, key="edit_prof1")
-                nueva_prof2 = st.number_input("Profundidad 2", min_value=0.0, max_value=30.0, value=prof2_actual, step=0.5, key="edit_prof2")
-                nueva_prof3 = st.number_input("Profundidad 3", min_value=0.0, max_value=30.0, value=prof3_actual, step=0.5, key="edit_prof3")
+                nueva_prof1 = st.number_input("Profundidad 1", min_value=0.0, max_value=30.0, value=prof1_actual, step=0.5, key=f"edit_prof1_{id_servicio_editar}")
+                nueva_prof2 = st.number_input("Profundidad 2", min_value=0.0, max_value=30.0, value=prof2_actual, step=0.5, key=f"edit_prof2_{id_servicio_editar}")
+                nueva_prof3 = st.number_input("Profundidad 3", min_value=0.0, max_value=30.0, value=prof3_actual, step=0.5, key=f"edit_prof3_{id_servicio_editar}")
 
             with col3:
                 st.write("**Servicios Realizados**")
-                edit_rotacion = st.checkbox("Rotación", value=(servicio.get('rotacion', 'No') == 'Sí'), key="edit_rotacion")
+                edit_rotacion = st.checkbox("Rotación", value=(servicio.get('rotacion', 'No') == 'Sí'), key=f"edit_rotacion_{id_servicio_editar}")
                 if edit_rotacion:
-                    edit_pos_nueva = st.text_input("Nueva Posición", value=servicio.get('posicion_nueva', ''), key="edit_pos_nueva")
+                    edit_pos_nueva = st.text_input("Nueva Posición", value=servicio.get('posicion_nueva', ''), key=f"edit_pos_nueva_{id_servicio_editar}")
                 else:
                     edit_pos_nueva = ""
-                edit_balanceo = st.checkbox("Balanceo", value=(servicio.get('balanceo', 'No') == 'Sí'), key="edit_balanceo")
-                edit_reparacion = st.checkbox("Reparación", value=(servicio.get('reparacion', 'No') == 'Sí'), key="edit_reparacion")
-                edit_despinche = st.checkbox("Despinche", value=(servicio.get('despinche', 'No') == 'Sí'), key="edit_despinche")
-                edit_regrabacion = st.checkbox("Regrabación", value=(servicio.get('regrabacion', 'No') == 'Sí'), key="edit_regrabacion")
-                edit_torqueo = st.checkbox("Torqueo", value=(servicio.get('torqueo', 'No') == 'Sí'), key="edit_torqueo")
+                edit_balanceo = st.checkbox("Balanceo", value=(servicio.get('balanceo', 'No') == 'Sí'), key=f"edit_balanceo_{id_servicio_editar}")
+                edit_reparacion = st.checkbox("Reparación", value=(servicio.get('reparacion', 'No') == 'Sí'), key=f"edit_reparacion_{id_servicio_editar}")
+                edit_despinche = st.checkbox("Despinche", value=(servicio.get('despinche', 'No') == 'Sí'), key=f"edit_despinche_{id_servicio_editar}")
+                edit_regrabacion = st.checkbox("Regrabación", value=(servicio.get('regrabacion', 'No') == 'Sí'), key=f"edit_regrabacion_{id_servicio_editar}")
+                edit_torqueo = st.checkbox("Torqueo", value=(servicio.get('torqueo', 'No') == 'Sí'), key=f"edit_torqueo_{id_servicio_editar}")
 
             # Comentario FVU (campo adicional)
             comentario_actual = servicio.get('comentario_fvu', '') if pd.notna(servicio.get('comentario_fvu')) else ''
-            nuevo_comentario = st.text_area("Comentario FVU", value=comentario_actual, key="edit_comentario_fvu")
+            nuevo_comentario = st.text_area("Comentario FVU", value=comentario_actual, key=f"edit_comentario_fvu_{id_servicio_editar}")
 
             col_btn1, col_btn2 = st.columns(2)
 
@@ -1025,8 +1040,10 @@ def eliminar_corregir_datos():
             nit_editar = st.selectbox("Seleccionar Cliente", df_clientes['nit'].values, key="select_cliente_editar")
             
             cliente = df_clientes[df_clientes['nit'] == nit_editar].iloc[0]
-            
-            nuevo_nombre = st.text_input("Nombre Cliente", value=cliente['nombre_cliente'], key="edit_nombre_cliente")
+
+            st.info(f"**Cliente seleccionado:** NIT: {nit_editar} | Nombre: {cliente.get('nombre_cliente', 'N/A')}")
+
+            nuevo_nombre = st.text_input("Nombre Cliente", value=cliente['nombre_cliente'], key=f"edit_nombre_cliente_{nit_editar}")
             
             if st.button("💾 Guardar Cambios", key="guardar_cliente"):
                 df_clientes.loc[df_clientes['nit'] == nit_editar, 'nombre_cliente'] = nuevo_nombre
@@ -1065,7 +1082,8 @@ def eliminar_corregir_datos():
 
                 movimiento = df_movimientos[df_movimientos['id_movimiento'] == id_mov_editar].iloc[0]
 
-                st.write("**Datos del Movimiento:**")
+                st.info(f"**Movimiento seleccionado:** {id_mov_editar} | Llanta: {movimiento.get('id_llanta', 'N/A')} | Tipo: {movimiento.get('tipo', 'N/A')} | Placa: {movimiento.get('placa_vehiculo', 'N/A')} | Fecha: {movimiento.get('fecha', 'N/A')}")
+
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
@@ -1073,33 +1091,34 @@ def eliminar_corregir_datos():
                     tipos_mov = ['montaje', 'desmontaje', 'aprobacion_reencauche', 'rotacion', 'otro']
                     tipo_actual = movimiento.get('tipo', 'otro')
                     tipo_idx = tipos_mov.index(tipo_actual) if tipo_actual in tipos_mov else 4
-                    nuevo_tipo = st.selectbox("Tipo", options=tipos_mov, index=tipo_idx, key="edit_tipo_mov")
+                    nuevo_tipo = st.selectbox("Tipo", options=tipos_mov, index=tipo_idx, key=f"edit_tipo_mov_{id_mov_editar}")
 
                     # Vida
                     vida_mov = int(movimiento.get('vida', 1)) if pd.notna(movimiento.get('vida')) else 1
                     vida_mov = max(1, vida_mov)  # Asegurar que sea al menos 1
                     # Limpiar session_state si tiene valor inválido
-                    if 'edit_vida_mov' in st.session_state and st.session_state['edit_vida_mov'] < 1:
-                        del st.session_state['edit_vida_mov']
-                    nueva_vida = st.number_input("Vida", min_value=1, max_value=4, value=vida_mov, key="edit_vida_mov")
+                    vida_key = f"edit_vida_mov_{id_mov_editar}"
+                    if vida_key in st.session_state and st.session_state[vida_key] < 1:
+                        del st.session_state[vida_key]
+                    nueva_vida = st.number_input("Vida", min_value=1, max_value=4, value=vida_mov, key=vida_key)
 
                 with col2:
                     # Placa vehículo
                     placa_mov = movimiento.get('placa_vehiculo', '') if pd.notna(movimiento.get('placa_vehiculo')) else ''
-                    nueva_placa = st.text_input("Placa Vehículo", value=placa_mov, key="edit_placa_mov")
+                    nueva_placa = st.text_input("Placa Vehículo", value=placa_mov, key=f"edit_placa_mov_{id_mov_editar}")
 
                     # Posición
                     pos_mov = movimiento.get('posicion', '') if pd.notna(movimiento.get('posicion')) else ''
-                    nueva_posicion = st.text_input("Posición", value=pos_mov, key="edit_pos_mov")
+                    nueva_posicion = st.text_input("Posición", value=pos_mov, key=f"edit_pos_mov_{id_mov_editar}")
 
                 with col3:
                     # Kilometraje
                     km_mov = int(movimiento.get('kilometraje', 0)) if pd.notna(movimiento.get('kilometraje')) else 0
-                    nuevo_km = st.number_input("Kilometraje", min_value=0, value=km_mov, key="edit_km_mov")
+                    nuevo_km = st.number_input("Kilometraje", min_value=0, value=km_mov, key=f"edit_km_mov_{id_mov_editar}")
 
                     # Nueva disponibilidad
                     disp_mov = movimiento.get('nueva_disponibilidad', '') if pd.notna(movimiento.get('nueva_disponibilidad')) else ''
-                    nueva_disp = st.text_input("Nueva Disponibilidad", value=disp_mov, key="edit_disp_mov")
+                    nueva_disp = st.text_input("Nueva Disponibilidad", value=disp_mov, key=f"edit_disp_mov_{id_mov_editar}")
 
                 # Datos de reencauche (si aplica)
                 st.write("**Datos de Reencauche (si aplica):**")
@@ -1107,19 +1126,19 @@ def eliminar_corregir_datos():
 
                 with col4:
                     marca_reenc = movimiento.get('marca_reencauche', '') if pd.notna(movimiento.get('marca_reencauche')) else ''
-                    nueva_marca_reenc = st.text_input("Marca Reencauche", value=marca_reenc, key="edit_marca_reenc")
+                    nueva_marca_reenc = st.text_input("Marca Reencauche", value=marca_reenc, key=f"edit_marca_reenc_{id_mov_editar}")
 
                 with col5:
                     ref_reenc = movimiento.get('ref_reencauche', '') if pd.notna(movimiento.get('ref_reencauche')) else ''
-                    nueva_ref_reenc = st.text_input("Ref. Reencauche", value=ref_reenc, key="edit_ref_reenc")
+                    nueva_ref_reenc = st.text_input("Ref. Reencauche", value=ref_reenc, key=f"edit_ref_reenc_{id_mov_editar}")
 
                 with col6:
                     precio_reenc = float(movimiento.get('precio_reencauche', 0)) if pd.notna(movimiento.get('precio_reencauche')) else 0
-                    nuevo_precio_reenc = st.number_input("Precio Reencauche", min_value=0.0, value=precio_reenc, key="edit_precio_reenc")
+                    nuevo_precio_reenc = st.number_input("Precio Reencauche", min_value=0.0, value=precio_reenc, key=f"edit_precio_reenc_{id_mov_editar}")
 
                 # Observaciones
                 obs_mov = movimiento.get('observaciones', '') if pd.notna(movimiento.get('observaciones')) else ''
-                nuevas_obs = st.text_area("Observaciones", value=obs_mov, key="edit_obs_mov")
+                nuevas_obs = st.text_area("Observaciones", value=obs_mov, key=f"edit_obs_mov_{id_mov_editar}")
 
                 col_btn1, col_btn2 = st.columns(2)
 
@@ -1247,7 +1266,7 @@ def ver_llantas_disponibles():
                            'costo_km_vida1', 'costo_km_vida2', 'costo_km_vida3', 'costo_km_vida4']
 
         columnas_disponibles = [col for col in columnas_mostrar if col in df_filtrado.columns]
-        st.dataframe(df_filtrado[columnas_disponibles], use_container_width=True)
+        st.dataframe(df_filtrado[columnas_disponibles], use_container_width=True, hide_index=True)
         st.caption(f"Total llantas: {len(df_filtrado)}")
     
     with tab2:
@@ -1503,7 +1522,11 @@ def crear_cliente():
                     st.error("Este NIT ya está registrado")
                     st.session_state['guardando_cliente'] = False
                 else:
+                    # Generar id_cliente automático
+                    id_cliente = generar_id_cliente(nombre_cliente, df_clientes)
+
                     nuevo_cliente = pd.DataFrame([{
+                        'id_cliente': id_cliente,
                         'nit': nit,
                         'nombre_cliente': nombre_cliente,
                         'frentes': json.dumps(frentes) if frentes else json.dumps([]),
@@ -1602,7 +1625,7 @@ def crear_vehiculos():
                     st.error("Esta placa ya está registrada")
                 else:
                     # Generar ID único para el vehículo
-                    id_vehiculo = generar_id_unico(cliente_seleccionado, frente, id_vehiculo_usuario, tipo='vehiculo')
+                    id_vehiculo = generar_id_unico(cliente_seleccionado, tipo='vehiculo')
 
                     nuevo_vehiculo = pd.DataFrame([{
                         'id_vehiculo': id_vehiculo,
@@ -1633,7 +1656,7 @@ def crear_vehiculos():
             df_display = df_vehiculos.merge(df_clientes[['nit', 'nombre_cliente']], left_on='nit_cliente', right_on='nit')
             columnas_mostrar = ['id_vehiculo', 'nombre_cliente', 'marca', 'linea', 'placa_vehiculo', 
                                'tipologia', 'frente', 'estado', 'kilometraje_inicial', 'calculo_kms']
-            st.dataframe(df_display[[col for col in columnas_mostrar if col in df_display.columns]], use_container_width=True)
+            st.dataframe(df_display[[col for col in columnas_mostrar if col in df_display.columns]], use_container_width=True, hide_index=True)
         else:
             st.info("No hay vehículos registrados o no tienes acceso")
 
@@ -1717,7 +1740,7 @@ def crear_llantas():
                 frente_final = frente_llanta if 'frente_llanta' in dir() else "General"
 
                 # Generar ID único para la llanta
-                id_llanta = generar_id_unico(cliente_seleccionado, frente_final, id_llanta_usuario, tipo='llanta')
+                id_llanta = generar_id_unico(cliente_seleccionado, tipo='llanta')
 
                 nueva_llanta = pd.DataFrame([{
                     'id_llanta': id_llanta,
@@ -1766,7 +1789,7 @@ def crear_llantas():
                                'disponibilidad', 'placa_vehiculo', 'vida', 'precio_vida1', 'precio_vida2', 
                                'precio_vida3', 'precio_vida4', 'costo_km_vida1', 'costo_km_vida2',
                                'costo_km_vida3', 'costo_km_vida4']
-            st.dataframe(df_display[[col for col in columnas_mostrar if col in df_display.columns]], use_container_width=True)
+            st.dataframe(df_display[[col for col in columnas_mostrar if col in df_display.columns]], use_container_width=True, hide_index=True)
         else:
             st.info("No hay llantas registradas o no tienes acceso")
 
@@ -1862,15 +1885,19 @@ def montaje_llantas(embedded=False):
                 if pos and pos != 'nan' and pos != '':
                     posiciones_ocupadas[pos] = str(row['id_llanta'])
 
+    # Información del vehículo seleccionado (recuadro azul)
+    km_vehiculo = vehiculo_seleccionado.iloc[0].get('kilometraje_inicial', 0) if not vehiculo_seleccionado.empty else 0
+    km_vehiculo = float(km_vehiculo) if pd.notna(km_vehiculo) else 0
+    marca_veh = vehiculo_seleccionado.iloc[0].get('marca', '') if not vehiculo_seleccionado.empty else ''
+    if posiciones_ocupadas:
+        ocupadas_texto = " | ".join([f"**{pos}**: {id_ll}" for pos, id_ll in sorted(posiciones_ocupadas.items())])
+        st.info(f"🚛 Vehículo: **{placa_vehiculo}** ({marca_veh}) | 📏 Km inicial: **{km_vehiculo:,.0f}** | 📍 Posiciones ocupadas: {ocupadas_texto}")
+    else:
+        st.info(f"🚛 Vehículo: **{placa_vehiculo}** ({marca_veh}) | 📏 Km inicial: **{km_vehiculo:,.0f}** | 📍 Sin llantas montadas")
+
     col3, col4 = st.columns(2)
     with col3:
         posicion = st.text_input("3️⃣ Posición (ej: DI, DD, TI1)")
-        # Mostrar posiciones actualmente ocupadas como referencia
-        if posiciones_ocupadas:
-            ocupadas_texto = " | ".join([f"**{pos}**: {id_ll}" for pos, id_ll in sorted(posiciones_ocupadas.items())])
-            st.caption(f"📍 Posiciones ocupadas: {ocupadas_texto}")
-        else:
-            st.caption("📍 No hay llantas montadas en este vehículo")
     with col4:
         kilometraje = st.number_input("4️⃣ Kilometraje del Vehículo", min_value=0, value=0)
 
@@ -1946,7 +1973,7 @@ def montaje_llantas(embedded=False):
             disponibilidad_anterior = llanta_data.get('disponibilidad', 'llanta_nueva')
 
             # Generar ID de servicio
-            id_servicio = generar_id_servicio(nit_cliente_vehiculo, frente)
+            id_servicio = generar_id_servicio(nit_cliente_vehiculo)
 
             nuevo_servicio = pd.DataFrame([{
                 'id_servicio': id_servicio,
@@ -2069,9 +2096,9 @@ def registrar_servicios(embedded=False):
 
     with col2:
         st.write("**Profundidades (mm)**")
-        profundidad_1 = st.number_input("Profundidad 1 (interna)", min_value=0.0, max_value=30.0, value=10.0, step=0.5, key="srv_prof1")
-        profundidad_2 = st.number_input("Profundidad 2 (centro)", min_value=0.0, max_value=30.0, value=10.0, step=0.5, key="srv_prof2")
-        profundidad_3 = st.number_input("Profundidad 3 (externa)", min_value=0.0, max_value=30.0, value=10.0, step=0.5, key="srv_prof3")
+        profundidad_1 = st.number_input("Profundidad 1 (interna)", min_value=0.0, max_value=30.0, value=0.0, step=0.5, key="srv_prof1")
+        profundidad_2 = st.number_input("Profundidad 2 (centro)", min_value=0.0, max_value=30.0, value=0.0, step=0.5, key="srv_prof2")
+        profundidad_3 = st.number_input("Profundidad 3 (externa)", min_value=0.0, max_value=30.0, value=0.0, step=0.5, key="srv_prof3")
 
     with col3:
         st.write("**Servicios Realizados**")
@@ -2125,7 +2152,7 @@ def registrar_servicios(embedded=False):
             frente = vehiculo_data.get('frente', 'General')
             tipologia = vehiculo_data.get('tipologia', '')
 
-        id_servicio = generar_id_servicio(nit_cliente, frente)
+        id_servicio = generar_id_servicio(nit_cliente)
 
         # Determinar tipo de servicio principal
         tipos_servicio = []
@@ -2327,7 +2354,7 @@ def registrar_servicios(embedded=False):
                                'profundidad_1', 'profundidad_2', 'profundidad_3']
             columnas_disponibles = [col for col in columnas_mostrar if col in df_resultado.columns]
 
-            st.dataframe(df_resultado[columnas_disponibles].sort_values('id_servicio', ascending=False) if 'id_servicio' in df_resultado.columns else df_resultado[columnas_disponibles], use_container_width=True)
+            st.dataframe(df_resultado[columnas_disponibles].sort_values('id_servicio', ascending=False) if 'id_servicio' in df_resultado.columns else df_resultado[columnas_disponibles], use_container_width=True, hide_index=True)
             st.caption(f"Total registros: {len(df_resultado)}")
         else:
             st.info("No hay servicios registrados para tus clientes")
@@ -2479,7 +2506,7 @@ def desmontaje_llantas(embedded=False):
             tipologia = vehiculo_srv.iloc[0].get('tipologia', '') if not vehiculo_srv.empty else ''
 
             # Generar ID de servicio
-            id_servicio = generar_id_servicio(nit_cliente_llanta, frente)
+            id_servicio = generar_id_servicio(nit_cliente_llanta)
 
             nuevo_servicio = pd.DataFrame([{
                 'id_servicio': id_servicio,
@@ -2574,6 +2601,14 @@ def registrar_alineacion(embedded=False):
 
             fecha_alineacion = st.date_input("Fecha del Servicio", value=datetime.now(), key="alineacion_fecha")
 
+        # Información del vehículo seleccionado (recuadro azul)
+        vehiculo_info = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa_vehiculo].iloc[0]
+        marca_alin = vehiculo_info.get('marca', '')
+        linea_alin = vehiculo_info.get('linea', '')
+        km_ini_alin = float(vehiculo_info.get('kilometraje_inicial', 0)) if pd.notna(vehiculo_info.get('kilometraje_inicial', 0)) else 0
+        tipologia_alin = vehiculo_info.get('tipologia', '')
+        st.info(f"🚛 Vehículo: **{placa_vehiculo}** | {marca_alin} {linea_alin} | Tipología: **{tipologia_alin}** | 📏 Km inicial: **{km_ini_alin:,.0f}**")
+
         with col2:
             vehiculo_data = df_vehiculos[df_vehiculos['placa_vehiculo'] == placa_vehiculo].iloc[0]
             km_inicial = float(vehiculo_data.get('kilometraje_inicial', 0)) if pd.notna(vehiculo_data.get('kilometraje_inicial', 0)) else 0
@@ -2581,7 +2616,7 @@ def registrar_alineacion(embedded=False):
             kilometraje = st.number_input(
                 "Kilometraje del Vehículo",
                 min_value=0,
-                value=int(km_inicial),
+                value=0,
                 step=1,
                 key="alineacion_km"
             )
@@ -2600,13 +2635,10 @@ def registrar_alineacion(embedded=False):
         if st.button("💾 Registrar Alineación", type="primary", key="btn_registrar_alineacion"):
             df_alineaciones = leer_hoja(SHEET_ALINEACIONES)
 
-            # Generar ID de alineación
-            if df_alineaciones.empty or 'id_alineacion' not in df_alineaciones.columns:
-                nuevo_id = 1
-            else:
-                nuevo_id = int(df_alineaciones['id_alineacion'].max()) + 1
-
             nit_cliente = vehiculo_data['nit_cliente']
+
+            # Generar ID de alineación con formato id_cliente
+            nuevo_id = generar_id_alineacion(nit_cliente)
 
             nueva_alineacion = pd.DataFrame([{
                 'id_alineacion': nuevo_id,
@@ -2648,7 +2680,7 @@ def registrar_alineacion(embedded=False):
                 columnas_mostrar = ['id_alineacion', 'fecha', 'placa_vehiculo', 'kilometraje', 'observaciones', 'usuario_registro']
                 columnas_disponibles = [col for col in columnas_mostrar if col in df_alineaciones.columns]
 
-                st.dataframe(df_alineaciones[columnas_disponibles].sort_values('id_alineacion', ascending=False), use_container_width=True)
+                st.dataframe(df_alineaciones[columnas_disponibles].sort_values('id_alineacion', ascending=False), use_container_width=True, hide_index=True)
             else:
                 st.info("No hay alineaciones registradas para tus clientes")
         else:
@@ -2698,6 +2730,12 @@ def rotacion_completa():
     # Obtener datos del vehículo
     vehiculo_data = df_vehiculos_activos[df_vehiculos_activos['placa_vehiculo'] == placa_vehiculo].iloc[0]
     nit_cliente = vehiculo_data['nit_cliente']
+    marca_rot = vehiculo_data.get('marca', '')
+    linea_rot = vehiculo_data.get('linea', '')
+    tipologia_rot = vehiculo_data.get('tipologia', '')
+    km_ini_rot = float(vehiculo_data.get('kilometraje_inicial', 0)) if pd.notna(vehiculo_data.get('kilometraje_inicial', 0)) else 0
+
+    st.info(f"🚛 Vehículo: **{placa_vehiculo}** | {marca_rot} {linea_rot} | Tipología: **{tipologia_rot}** | 📏 Km inicial: **{km_ini_rot:,.0f}**")
 
     # Filtrar llantas montadas en este vehículo
     col_placa = 'placa_actual' if 'placa_actual' in df_llantas.columns else 'placa_vehiculo'
@@ -2809,7 +2847,7 @@ def rotacion_completa():
 
             # Crear un registro de servicio por cada llanta rotada
             for ll_rot in llantas_rotadas:
-                id_servicio = generar_id_servicio(nit_cliente, frente)
+                id_servicio = generar_id_servicio(nit_cliente)
 
                 # Obtener vida actual
                 llanta_row = df_llantas_update[df_llantas_update['id_llanta'].astype(str) == ll_rot['id_llanta']]
@@ -2968,7 +3006,7 @@ def reportes():
                 st.divider()
                 st.write("**Historial de Profundidades**")
                 columnas_reporte = [col for col in ['id_servicio', 'fecha', 'kilometraje', 'profundidad_1', 'profundidad_2', 'profundidad_3', 'pos_final', 'comentario_fvu'] if col in servicios_llanta.columns]
-                st.dataframe(servicios_llanta[columnas_reporte], use_container_width=True)
+                st.dataframe(servicios_llanta[columnas_reporte], use_container_width=True, hide_index=True)
     
     with tab2:
         st.subheader("Servicios por Llanta")
@@ -2988,7 +3026,7 @@ def reportes():
 
             resumen.columns = ['ID Llanta', 'Total Servicios', 'Rotaciones', 'Balanceos', 'Reparaciones', 'Despinches', 'Regrabaciones', 'Torqueos']
             
-            st.dataframe(resumen, use_container_width=True)
+            st.dataframe(resumen, use_container_width=True, hide_index=True)
             
             st.divider()
             id_llanta_detalle = st.selectbox(
@@ -2998,7 +3036,7 @@ def reportes():
             )
             
             servicios_detalle = df_servicios[df_servicios['id_llanta'] == id_llanta_detalle].sort_values('timestamp', ascending=False)
-            st.dataframe(servicios_detalle, use_container_width=True)
+            st.dataframe(servicios_detalle, use_container_width=True, hide_index=True)
         else:
             st.info("No hay servicios registrados")
     
@@ -3035,7 +3073,7 @@ def reportes():
                 st.divider()
                 st.write("**Historial de Servicios**")
                 columnas_vehiculo = [col for col in ['id_servicio', 'fecha', 'id_llanta', 'pos_inicial', 'vida', 'tipologia', 'kilometraje', 'profundidad_1', 'profundidad_2', 'profundidad_3'] if col in servicios_vehiculo.columns]
-                st.dataframe(servicios_vehiculo[columnas_vehiculo], use_container_width=True)
+                st.dataframe(servicios_vehiculo[columnas_vehiculo], use_container_width=True, hide_index=True)
         else:
             st.info("No hay servicios registrados")
     
@@ -3080,7 +3118,7 @@ def reportes():
                 vehiculos_con_llantas = df_llantas[df_llantas['placa_vehiculo'] != ''].groupby('placa_vehiculo').size().reset_index(name='cantidad_llantas')
                 vehiculos_info = df_vehiculos.merge(vehiculos_con_llantas, on='placa_vehiculo', how='left')
                 vehiculos_info['cantidad_llantas'].fillna(0, inplace=True)
-                st.dataframe(vehiculos_info[['placa_vehiculo', 'marca', 'linea', 'tipologia', 'frente', 'estado', 'cantidad_llantas']], use_container_width=True)
+                st.dataframe(vehiculos_info[['placa_vehiculo', 'marca', 'linea', 'tipologia', 'frente', 'estado', 'cantidad_llantas']], use_container_width=True, hide_index=True)
         else:
             st.info("No hay llantas registradas o no tienes acceso")
     
