@@ -597,18 +597,25 @@ def generar_id_cliente(nombre_cliente, df_clientes):
 
     prefijo = nombre_limpio[:2] if len(nombre_limpio) >= 2 else nombre_limpio.ljust(2, 'X')
 
-    # Buscar máximo consecutivo para este prefijo
+    # Buscar máximo consecutivo GLOBAL entre todos los clientes
     max_consecutivo = 0
     if not df_clientes.empty and 'id_cliente' in df_clientes.columns:
         for id_val in df_clientes['id_cliente'].values:
             if pd.notna(id_val):
                 id_str = str(id_val).strip()
-                if id_str.startswith(prefijo) and len(id_str) >= len(prefijo) + 1:
+                # Extraer el número final (últimos dígitos) de cualquier id_cliente
+                num_str = ''
+                for c in reversed(id_str):
+                    if c.isdigit():
+                        num_str = c + num_str
+                    else:
+                        break
+                if num_str:
                     try:
-                        num = int(id_str[len(prefijo):])
+                        num = int(num_str)
                         if num > max_consecutivo:
                             max_consecutivo = num
-                    except (ValueError, IndexError):
+                    except ValueError:
                         pass
 
     nuevo_id = f"{prefijo}{max_consecutivo + 1:02d}"
