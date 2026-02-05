@@ -1748,6 +1748,9 @@ def crear_llantas():
 
                 # Generar ID único para la llanta
                 id_llanta = generar_id_unico(cliente_seleccionado, tipo='llanta')
+                # Anexar ID opcional del usuario si fue proporcionado
+                if id_llanta_usuario and id_llanta_usuario.strip():
+                    id_llanta = f"{id_llanta}_{id_llanta_usuario.strip()}"
 
                 nueva_llanta = pd.DataFrame([{
                     'id_llanta': id_llanta,
