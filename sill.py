@@ -825,23 +825,24 @@ def eliminar_corregir_datos():
     with tab1:
         st.subheader("Gestión de Vehículos")
         df_vehiculos = leer_hoja(SHEET_VEHICULOS)
-        
+
         if not df_vehiculos.empty:
             clientes_acceso = obtener_clientes_accesibles()
             df_vehiculos = filtrar_por_clientes(df_vehiculos, 'nit_cliente', clientes_acceso)
-            
+
             if not df_vehiculos.empty:
                 id_editar = st.selectbox("Seleccionar Vehículo",
                     df_vehiculos['id_vehiculo'].values,
                     format_func=lambda x: f"ID {x} - {df_vehiculos[df_vehiculos['id_vehiculo']==x]['placa_vehiculo'].values[0]}",
                     key="select_vehiculo_editar")
-                
+
                 vehiculo = df_vehiculos[df_vehiculos['id_vehiculo'] == id_editar].iloc[0]
 
                 st.info(f"**Vehículo seleccionado:** {id_editar} | Placa: {vehiculo.get('placa_vehiculo', 'N/A')} | Marca: {vehiculo.get('marca', 'N/A')} | Línea: {vehiculo.get('linea', 'N/A')} | Estado: {vehiculo.get('estado', 'N/A')}")
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
+                    nuevo_id_vehiculo = st.text_input("ID Vehículo", value=vehiculo.get('id_vehiculo', ''), key=f"edit_id_vehiculo_{id_editar}")
                     nueva_marca = st.text_input("Marca", value=vehiculo.get('marca', ''), key=f"edit_marca_vehiculo_{id_editar}")
                     nuevo_estado = st.selectbox("Estado",
                         options=['no_asignado', 'activo', 'fuera_de_servicio'],
@@ -849,19 +850,44 @@ def eliminar_corregir_datos():
                         key=f"edit_estado_vehiculo_{id_editar}")
 
                 with col2:
+                    nueva_placa = st.text_input("Placa Vehículo", value=vehiculo.get('placa_vehiculo', ''), key=f"edit_placa_vehiculo_{id_editar}")
                     nueva_linea = st.text_input("Línea", value=vehiculo.get('linea', ''), key=f"edit_linea_vehiculo_{id_editar}")
                     nuevo_km_inicial = st.number_input("Kilometraje Inicial", value=float(vehiculo.get('kilometraje_inicial', 0)), key=f"edit_km_vehiculo_{id_editar}")
 
                 with col3:
+                    # Obtener frentes del cliente para este vehículo
+                    nit_vehiculo = vehiculo.get('nit_cliente', '')
+                    df_clientes_veh = leer_hoja(SHEET_CLIENTES)
+                    frentes_disponibles = []
+                    if not df_clientes_veh.empty:
+                        cliente_veh = df_clientes_veh[df_clientes_veh['nit'] == str(nit_vehiculo)]
+                        if not cliente_veh.empty:
+                            try:
+                                import json as _json
+                                frentes_raw = cliente_veh.iloc[0].get('frentes', '[]')
+                                frentes_disponibles = _json.loads(str(frentes_raw)) if frentes_raw and str(frentes_raw).strip() not in ['', 'nan', '[]'] else []
+                            except:
+                                frentes_disponibles = []
+                    frente_actual = vehiculo.get('frente', '')
+                    if frentes_disponibles:
+                        idx_frente = frentes_disponibles.index(frente_actual) if frente_actual in frentes_disponibles else 0
+                        nuevo_frente = st.selectbox("Frente", options=frentes_disponibles, index=idx_frente, key=f"edit_frente_vehiculo_{id_editar}")
+                    else:
+                        nuevo_frente = st.text_input("Frente", value=frente_actual, key=f"edit_frente_vehiculo_{id_editar}")
                     nueva_tipologia = st.text_input("Tipología", value=vehiculo.get('tipologia', ''), key=f"edit_tipologia_vehiculo_{id_editar}")
                     nuevo_calculo = st.selectbox("Cálculo KMs",
                         options=['odometro', 'promedio', 'tabla'],
                         index=['odometro', 'promedio', 'tabla'].index(vehiculo.get('calculo_kms', 'odometro')),
                         key=f"edit_calculo_vehiculo_{id_editar}")
-                
+
+                st.warning("⚠️ Cambiar ID o placa actualizará en cascada llantas, servicios y movimientos.")
+
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    if st.button("💾 Guardar Cambios", key="guardar_vehiculo"):
+                    if st.button("💾 Guardar Cambios", key="guardar_vehiculo", type="primary"):
+                        placa_original = vehiculo.get('placa_vehiculo', '')
+                        cambios_vehiculo = []
+
                         df_todos = leer_hoja(SHEET_VEHICULOS)
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'marca'] = nueva_marca
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'linea'] = nueva_linea
@@ -869,10 +895,40 @@ def eliminar_corregir_datos():
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'estado'] = nuevo_estado
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'kilometraje_inicial'] = nuevo_km_inicial
                         df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'calculo_kms'] = nuevo_calculo
+                        df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'frente'] = nuevo_frente
+
+                        # Cascada si cambió ID vehículo
+                        if nuevo_id_vehiculo != id_editar and nuevo_id_vehiculo.strip():
+                            df_todos.loc[df_todos['id_vehiculo'] == id_editar, 'id_vehiculo'] = nuevo_id_vehiculo
+                            cambios_vehiculo.append(f"ID: {id_editar} → {nuevo_id_vehiculo}")
+
+                        # Cascada si cambió placa
+                        if nueva_placa != placa_original and nueva_placa.strip():
+                            df_todos.loc[df_todos['placa_vehiculo'] == placa_original, 'placa_vehiculo'] = nueva_placa
+                            # Cascada a llantas (placa_actual)
+                            df_llantas_casc = leer_hoja(SHEET_LLANTAS)
+                            if not df_llantas_casc.empty and 'placa_actual' in df_llantas_casc.columns:
+                                df_llantas_casc.loc[df_llantas_casc['placa_actual'] == placa_original, 'placa_actual'] = nueva_placa
+                                escribir_hoja(SHEET_LLANTAS, df_llantas_casc)
+                            # Cascada a servicios
+                            df_servicios_casc = leer_hoja(SHEET_SERVICIOS)
+                            if not df_servicios_casc.empty and 'placa_vehiculo' in df_servicios_casc.columns:
+                                df_servicios_casc.loc[df_servicios_casc['placa_vehiculo'] == placa_original, 'placa_vehiculo'] = nueva_placa
+                                escribir_hoja(SHEET_SERVICIOS, df_servicios_casc)
+                            # Cascada a movimientos
+                            df_mov_casc = leer_hoja(SHEET_MOVIMIENTOS)
+                            if not df_mov_casc.empty and 'placa_vehiculo' in df_mov_casc.columns:
+                                df_mov_casc.loc[df_mov_casc['placa_vehiculo'] == placa_original, 'placa_vehiculo'] = nueva_placa
+                                escribir_hoja(SHEET_MOVIMIENTOS, df_mov_casc)
+                            cambios_vehiculo.append(f"Placa: {placa_original} → {nueva_placa}")
+
                         escribir_hoja(SHEET_VEHICULOS, df_todos)
-                        st.success("✅ Vehículo actualizado con éxito")
+                        msg = "✅ Vehículo actualizado"
+                        if cambios_vehiculo:
+                            msg += f" (cascada: {', '.join(cambios_vehiculo)})"
+                        st.success(msg)
                         st.rerun()
-                
+
                 with col_btn2:
                     if st.button("🗑️ Eliminar Vehículo", key="eliminar_vehiculo"):
                         df_todos = leer_hoja(SHEET_VEHICULOS)
@@ -888,18 +944,47 @@ def eliminar_corregir_datos():
     with tab2:
         st.subheader("Gestión de Llantas")
         df_llantas = leer_hoja(SHEET_LLANTAS)
-        
+
         if not df_llantas.empty:
             clientes_acceso = obtener_clientes_accesibles()
             df_llantas = filtrar_por_clientes(df_llantas, 'nit_cliente', clientes_acceso)
-            
+
             if not df_llantas.empty:
-                id_editar = st.selectbox("Seleccionar Llanta", df_llantas['id_llanta'].values, key="select_llanta_editar")
-                
+                id_editar = st.selectbox("Seleccionar Llanta",
+                    df_llantas['id_llanta'].values,
+                    format_func=lambda x: f"{x} - {df_llantas[df_llantas['id_llanta']==x]['marca_llanta'].values[0]} | Disp: {df_llantas[df_llantas['id_llanta']==x]['disponibilidad'].values[0]}",
+                    key="select_llanta_editar")
+
                 llanta = df_llantas[df_llantas['id_llanta'] == id_editar].iloc[0]
 
-                st.info(f"**Llanta seleccionada:** {id_editar} | Marca: {llanta.get('marca_llanta', 'N/A')} | Ref: {llanta.get('referencia', 'N/A')} | Dimensión: {llanta.get('dimension', 'N/A')} | Disponibilidad: {llanta.get('disponibilidad', 'N/A')}")
+                placa_ll = llanta.get('placa_actual', '') if pd.notna(llanta.get('placa_actual')) else ''
+                pos_ll = llanta.get('posicion_actual', '') if pd.notna(llanta.get('posicion_actual')) else ''
+                st.info(f"**Llanta seleccionada:** {id_editar} | Marca: {llanta.get('marca_llanta', 'N/A')} | Ref: {llanta.get('referencia', 'N/A')} | Dimensión: {llanta.get('dimension', 'N/A')} | Disponibilidad: {llanta.get('disponibilidad', 'N/A')} | Placa: {placa_ll or 'N/A'} | Posición: {pos_ll or 'N/A'}")
 
+                # Fila 1: ID llanta y campos operativos
+                col_op1, col_op2, col_op3, col_op4 = st.columns(4)
+                with col_op1:
+                    nuevo_id_llanta = st.text_input("ID Llanta", value=id_editar, key=f"edit_id_llanta_{id_editar}")
+                with col_op2:
+                    disp_opciones = ['llanta_nueva', 'al_piso', 'recambio', 'reencauche', 'FVU']
+                    disp_actual = llanta.get('disponibilidad', 'llanta_nueva')
+                    disp_idx = disp_opciones.index(disp_actual) if disp_actual in disp_opciones else 0
+                    nueva_disponibilidad = st.selectbox("Disponibilidad", options=disp_opciones, index=disp_idx, key=f"edit_disp_llanta_{id_editar}")
+                with col_op3:
+                    nueva_posicion = st.text_input("Posición Actual", value=pos_ll, key=f"edit_posicion_llanta_{id_editar}")
+                with col_op4:
+                    nueva_placa_actual = st.text_input("Placa Actual", value=placa_ll, key=f"edit_placa_llanta_{id_editar}")
+
+                # Kilometraje último montaje
+                km_ult_montaje = float(llanta.get('km_ultimo_montaje', 0)) if pd.notna(llanta.get('km_ultimo_montaje')) else 0
+                nuevo_km_montaje = st.number_input("Kilometraje Último Montaje", min_value=0.0, value=km_ult_montaje, key=f"edit_km_montaje_llanta_{id_editar}")
+
+                if nueva_disponibilidad != 'al_piso' and (nueva_placa_actual.strip() or nueva_posicion.strip()):
+                    st.warning("⚠️ Si la disponibilidad NO es 'al_piso', se limpiarán automáticamente la placa y posición actual al guardar.")
+
+                st.divider()
+
+                # Fila 2: Datos técnicos (existentes)
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     nueva_marca = st.text_input("Marca", value=llanta.get('marca_llanta', ''), key=f"edit_marca_llanta_{id_editar}")
@@ -914,32 +999,74 @@ def eliminar_corregir_datos():
                     precio_v3 = st.number_input("Precio Vida 3", value=float(llanta.get('precio_vida3', 0)), key=f"edit_precio_v3_llanta_{id_editar}")
 
                 precio_v4 = st.number_input("Precio Vida 4", value=float(llanta.get('precio_vida4', 0)), key=f"edit_precio_v4_llanta_{id_editar}")
-                
+
                 st.info("💡 Los costos/km se recalculan automáticamente al guardar cambios")
-                
-                if st.button("💾 Guardar Cambios", key="guardar_llanta"):
-                    df_todos = leer_hoja(SHEET_LLANTAS)
-                    df_todos.loc[df_todos['id_llanta'] == id_editar, 'marca_llanta'] = nueva_marca
-                    df_todos.loc[df_todos['id_llanta'] == id_editar, 'referencia'] = nueva_referencia
-                    df_todos.loc[df_todos['id_llanta'] == id_editar, 'dimension'] = nueva_dimension
-                    df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida1'] = precio_v1
-                    df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida2'] = precio_v2
-                    df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida3'] = precio_v3
-                    df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida4'] = precio_v4
-                    escribir_hoja(SHEET_LLANTAS, df_todos)
-                    
-                    # Recalcular costos/km después de guardar
-                    actualizar_costos_km_llanta(id_editar)
-                    
-                    st.success("✅ Llanta actualizada con éxito")
-                    st.rerun()
-                
-                if st.button("🗑️ Eliminar Llanta", key="eliminar_llanta"):
-                    df_todos = leer_hoja(SHEET_LLANTAS)
-                    df_todos = df_todos[df_todos['id_llanta'] != id_editar]
-                    escribir_hoja(SHEET_LLANTAS, df_todos)
-                    st.success("✅ Llanta eliminada con éxito")
-                    st.rerun()
+
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 Guardar Cambios", key="guardar_llanta", type="primary"):
+                        df_todos = leer_hoja(SHEET_LLANTAS)
+                        cambios_llanta = []
+
+                        # Campos técnicos existentes
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'marca_llanta'] = nueva_marca
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'referencia'] = nueva_referencia
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'dimension'] = nueva_dimension
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida1'] = precio_v1
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida2'] = precio_v2
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida3'] = precio_v3
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'precio_vida4'] = precio_v4
+
+                        # Campos operativos nuevos
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'disponibilidad'] = nueva_disponibilidad
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'km_ultimo_montaje'] = nuevo_km_montaje
+
+                        # Auto-limpiar placa y posición si disponibilidad no es al_piso
+                        if nueva_disponibilidad != 'al_piso':
+                            df_todos.loc[df_todos['id_llanta'] == id_editar, 'placa_actual'] = ''
+                            df_todos.loc[df_todos['id_llanta'] == id_editar, 'posicion_actual'] = ''
+                            if placa_ll or pos_ll:
+                                cambios_llanta.append("placa y posición limpiadas (no al_piso)")
+                        else:
+                            df_todos.loc[df_todos['id_llanta'] == id_editar, 'placa_actual'] = nueva_placa_actual
+                            df_todos.loc[df_todos['id_llanta'] == id_editar, 'posicion_actual'] = nueva_posicion
+
+                        df_todos.loc[df_todos['id_llanta'] == id_editar, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                        # Cascada si cambió ID llanta
+                        if nuevo_id_llanta != id_editar and nuevo_id_llanta.strip():
+                            df_todos.loc[df_todos['id_llanta'] == id_editar, 'id_llanta'] = nuevo_id_llanta
+                            # Cascada a servicios
+                            df_srv_casc = leer_hoja(SHEET_SERVICIOS)
+                            if not df_srv_casc.empty and 'id_llanta' in df_srv_casc.columns:
+                                df_srv_casc.loc[df_srv_casc['id_llanta'] == id_editar, 'id_llanta'] = nuevo_id_llanta
+                                escribir_hoja(SHEET_SERVICIOS, df_srv_casc)
+                            # Cascada a movimientos
+                            df_mov_casc = leer_hoja(SHEET_MOVIMIENTOS)
+                            if not df_mov_casc.empty and 'id_llanta' in df_mov_casc.columns:
+                                df_mov_casc.loc[df_mov_casc['id_llanta'] == id_editar, 'id_llanta'] = nuevo_id_llanta
+                                escribir_hoja(SHEET_MOVIMIENTOS, df_mov_casc)
+                            cambios_llanta.append(f"ID: {id_editar} → {nuevo_id_llanta}")
+
+                        escribir_hoja(SHEET_LLANTAS, df_todos)
+
+                        # Recalcular costos/km
+                        id_para_recalc = nuevo_id_llanta if nuevo_id_llanta.strip() and nuevo_id_llanta != id_editar else id_editar
+                        actualizar_costos_km_llanta(id_para_recalc)
+
+                        msg = "✅ Llanta actualizada con éxito"
+                        if cambios_llanta:
+                            msg += f" ({', '.join(cambios_llanta)})"
+                        st.success(msg)
+                        st.rerun()
+
+                with col_btn2:
+                    if st.button("🗑️ Eliminar Llanta", key="eliminar_llanta"):
+                        df_todos = leer_hoja(SHEET_LLANTAS)
+                        df_todos = df_todos[df_todos['id_llanta'] != id_editar]
+                        escribir_hoja(SHEET_LLANTAS, df_todos)
+                        st.success("✅ Llanta eliminada con éxito")
+                        st.rerun()
             else:
                 st.info("No tienes llantas accesibles")
         else:
@@ -950,11 +1077,25 @@ def eliminar_corregir_datos():
         df_servicios = leer_hoja(SHEET_SERVICIOS)
 
         if not df_servicios.empty:
-            id_servicio_editar = st.selectbox("Seleccionar Servicio", df_servicios['id_servicio'].values, key="select_servicio_editar")
+            id_servicio_editar = st.selectbox("Seleccionar Servicio",
+                df_servicios['id_servicio'].values,
+                format_func=lambda x: f"{x} - {df_servicios[df_servicios['id_servicio']==x]['tipo_servicio'].values[0]} | Llanta: {df_servicios[df_servicios['id_servicio']==x]['id_llanta'].values[0]} ({df_servicios[df_servicios['id_servicio']==x]['fecha'].values[0]})",
+                key="select_servicio_editar")
 
             servicio = df_servicios[df_servicios['id_servicio'] == id_servicio_editar].iloc[0]
 
             st.info(f"**Servicio seleccionado:** {id_servicio_editar} | Llanta: {servicio.get('id_llanta', 'N/A')} | Placa: {servicio.get('placa_vehiculo', 'N/A')} | Fecha: {servicio.get('fecha', 'N/A')} | Tipo: {servicio.get('tipo_servicio', 'N/A')}")
+
+            # Fila de campos nuevos: ID servicio, OT, Planilla
+            col_id1, col_id2, col_id3 = st.columns(3)
+            with col_id1:
+                nuevo_id_servicio = st.text_input("ID Servicio", value=id_servicio_editar, key=f"edit_id_servicio_{id_servicio_editar}")
+            with col_id2:
+                ot_actual = servicio.get('orden_trabajo', '') if pd.notna(servicio.get('orden_trabajo')) else ''
+                nueva_ot = st.text_input("Orden de Trabajo (OT)", value=ot_actual, key=f"edit_ot_servicio_{id_servicio_editar}")
+            with col_id3:
+                planilla_actual = servicio.get('planilla', '') if pd.notna(servicio.get('planilla')) else ''
+                nueva_planilla = st.text_input("Planilla", value=planilla_actual, key=f"edit_planilla_servicio_{id_servicio_editar}")
 
             col1, col2, col3 = st.columns(3)
 
@@ -1005,20 +1146,27 @@ def eliminar_corregir_datos():
                     if edit_rotacion and not edit_pos_nueva:
                         st.error("Si hay rotación, debes especificar la nueva posición")
                     else:
-                        # Actualizar los campos editables
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'fecha'] = nueva_fecha.strftime("%d/%m/%Y")
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'kilometraje'] = nuevo_km
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_1'] = nueva_prof1
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_2'] = nueva_prof2
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_3'] = nueva_prof3
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'rotacion'] = 'Sí' if edit_rotacion else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'posicion_nueva'] = edit_pos_nueva if edit_rotacion else ''
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'balanceo'] = 'Sí' if edit_balanceo else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'reparacion'] = 'Sí' if edit_reparacion else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'despinche'] = 'Sí' if edit_despinche else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'regrabacion'] = 'Sí' if edit_regrabacion else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'torqueo'] = 'Sí' if edit_torqueo else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'comentario_fvu'] = nuevo_comentario
+                        # Actualizar campos nuevos: ID, OT, Planilla
+                        if nuevo_id_servicio != id_servicio_editar and nuevo_id_servicio.strip():
+                            df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'id_servicio'] = nuevo_id_servicio
+                        df_servicios.loc[df_servicios['id_servicio'].isin([id_servicio_editar, nuevo_id_servicio]), 'orden_trabajo'] = nueva_ot
+                        df_servicios.loc[df_servicios['id_servicio'].isin([id_servicio_editar, nuevo_id_servicio]), 'planilla'] = nueva_planilla
+
+                        # Actualizar los campos editables existentes
+                        id_srv_actual = nuevo_id_servicio if nuevo_id_servicio.strip() else id_servicio_editar
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'fecha'] = nueva_fecha.strftime("%d/%m/%Y")
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'kilometraje'] = nuevo_km
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'profundidad_1'] = nueva_prof1
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'profundidad_2'] = nueva_prof2
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'profundidad_3'] = nueva_prof3
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'rotacion'] = 'Sí' if edit_rotacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'posicion_nueva'] = edit_pos_nueva if edit_rotacion else ''
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'balanceo'] = 'Sí' if edit_balanceo else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'reparacion'] = 'Sí' if edit_reparacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'despinche'] = 'Sí' if edit_despinche else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'regrabacion'] = 'Sí' if edit_regrabacion else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'torqueo'] = 'Sí' if edit_torqueo else 'No'
+                        df_servicios.loc[df_servicios['id_servicio'] == id_srv_actual, 'comentario_fvu'] = nuevo_comentario
 
                         escribir_hoja(SHEET_SERVICIOS, df_servicios)
 
@@ -1045,33 +1193,96 @@ def eliminar_corregir_datos():
     
     with tab4:
         st.subheader("Gestión de Clientes")
-        
+
         if st.session_state.get('nivel') != 1:
             st.warning("⚠️ Solo el Administrador puede editar clientes")
             return
-        
+
         df_clientes = leer_hoja(SHEET_CLIENTES)
-        
+
         if not df_clientes.empty:
-            nit_editar = st.selectbox("Seleccionar Cliente", df_clientes['nit'].values, key="select_cliente_editar")
-            
+            nit_editar = st.selectbox("Seleccionar Cliente",
+                df_clientes['nit'].values,
+                format_func=lambda x: f"NIT {x} - {df_clientes[df_clientes['nit']==x]['nombre_cliente'].values[0]}",
+                key="select_cliente_editar")
+
             cliente = df_clientes[df_clientes['nit'] == nit_editar].iloc[0]
 
-            st.info(f"**Cliente seleccionado:** NIT: {nit_editar} | Nombre: {cliente.get('nombre_cliente', 'N/A')}")
+            st.info(f"**Cliente seleccionado:** ID: {cliente.get('id_cliente', 'N/A')} | NIT: {nit_editar} | Nombre: {cliente.get('nombre_cliente', 'N/A')}")
 
-            nuevo_nombre = st.text_input("Nombre Cliente", value=cliente['nombre_cliente'], key=f"edit_nombre_cliente_{nit_editar}")
-            
-            if st.button("💾 Guardar Cambios", key="guardar_cliente"):
-                df_clientes.loc[df_clientes['nit'] == nit_editar, 'nombre_cliente'] = nuevo_nombre
-                escribir_hoja(SHEET_CLIENTES, df_clientes)
-                st.success("✅ Cliente actualizado con éxito")
-                st.rerun()
-            
-            if st.button("🗑️ Eliminar Cliente", key="eliminar_cliente"):
-                df_clientes = df_clientes[df_clientes['nit'] != nit_editar]
-                escribir_hoja(SHEET_CLIENTES, df_clientes)
-                st.success("✅ Cliente eliminado con éxito")
-                st.rerun()
+            col1, col2 = st.columns(2)
+            with col1:
+                nuevo_id_cliente = st.text_input("ID Cliente", value=cliente.get('id_cliente', ''), key=f"edit_id_cliente_{nit_editar}")
+                nuevo_nombre = st.text_input("Nombre Cliente", value=cliente.get('nombre_cliente', ''), key=f"edit_nombre_cliente_{nit_editar}")
+            with col2:
+                nuevo_nit = st.text_input("NIT", value=str(nit_editar), key=f"edit_nit_cliente_{nit_editar}")
+                # Frentes: convertir JSON a texto separado por comas
+                frentes_raw = cliente.get('frentes', '[]')
+                try:
+                    import json as _json
+                    frentes_lista = _json.loads(str(frentes_raw)) if frentes_raw and str(frentes_raw).strip() not in ['', 'nan', '[]'] else []
+                except:
+                    frentes_lista = []
+                frentes_texto = ", ".join(frentes_lista) if frentes_lista else ""
+                nuevos_frentes_texto = st.text_input("Frentes (separados por coma)", value=frentes_texto, key=f"edit_frentes_cliente_{nit_editar}")
+
+            st.warning("⚠️ Cambiar ID, NIT o frentes actualizará en cascada vehículos, llantas, servicios, movimientos y usuarios.")
+
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("💾 Guardar Cambios", key="guardar_cliente", type="primary"):
+                    import json as _json
+                    id_cliente_original = cliente.get('id_cliente', '')
+                    cambios_realizados = []
+
+                    # Convertir frentes de texto a JSON
+                    nuevos_frentes_lista = [f.strip() for f in nuevos_frentes_texto.split(",") if f.strip()] if nuevos_frentes_texto.strip() else []
+                    nuevos_frentes_json = _json.dumps(nuevos_frentes_lista, ensure_ascii=False)
+
+                    # Actualizar nombre y frentes (siempre)
+                    df_clientes.loc[df_clientes['nit'] == nit_editar, 'nombre_cliente'] = nuevo_nombre
+                    df_clientes.loc[df_clientes['nit'] == nit_editar, 'frentes'] = nuevos_frentes_json
+                    cambios_realizados.append("nombre y frentes")
+
+                    # Cascada si cambió ID cliente
+                    if nuevo_id_cliente != id_cliente_original and nuevo_id_cliente.strip():
+                        df_clientes.loc[df_clientes['nit'] == nit_editar, 'id_cliente'] = nuevo_id_cliente
+                        cambios_realizados.append(f"ID: {id_cliente_original} → {nuevo_id_cliente}")
+
+                    # Cascada si cambió NIT
+                    if str(nuevo_nit) != str(nit_editar) and nuevo_nit.strip():
+                        df_clientes.loc[df_clientes['nit'] == nit_editar, 'nit'] = nuevo_nit
+                        # Cascada a vehículos
+                        df_vehiculos_casc = leer_hoja(SHEET_VEHICULOS)
+                        if not df_vehiculos_casc.empty:
+                            df_vehiculos_casc.loc[df_vehiculos_casc['nit_cliente'] == str(nit_editar), 'nit_cliente'] = nuevo_nit
+                            escribir_hoja(SHEET_VEHICULOS, df_vehiculos_casc)
+                        # Cascada a llantas
+                        df_llantas_casc = leer_hoja(SHEET_LLANTAS)
+                        if not df_llantas_casc.empty:
+                            df_llantas_casc.loc[df_llantas_casc['nit_cliente'] == str(nit_editar), 'nit_cliente'] = nuevo_nit
+                            escribir_hoja(SHEET_LLANTAS, df_llantas_casc)
+                        # Cascada a usuarios (clientes_asignados es lista separada por comas)
+                        df_usuarios_casc = leer_hoja(SHEET_USUARIOS)
+                        if not df_usuarios_casc.empty and 'clientes_asignados' in df_usuarios_casc.columns:
+                            for idx_u, row_u in df_usuarios_casc.iterrows():
+                                asignados = str(row_u.get('clientes_asignados', ''))
+                                if str(nit_editar) in asignados:
+                                    asignados_nuevo = asignados.replace(str(nit_editar), str(nuevo_nit))
+                                    df_usuarios_casc.at[idx_u, 'clientes_asignados'] = asignados_nuevo
+                            escribir_hoja(SHEET_USUARIOS, df_usuarios_casc)
+                        cambios_realizados.append(f"NIT: {nit_editar} → {nuevo_nit}")
+
+                    escribir_hoja(SHEET_CLIENTES, df_clientes)
+                    st.success(f"✅ Cliente actualizado: {', '.join(cambios_realizados)}")
+                    st.rerun()
+
+            with col_btn2:
+                if st.button("🗑️ Eliminar Cliente", key="eliminar_cliente"):
+                    df_clientes = df_clientes[df_clientes['nit'] != nit_editar]
+                    escribir_hoja(SHEET_CLIENTES, df_clientes)
+                    st.success("✅ Cliente eliminado con éxito")
+                    st.rerun()
         else:
             st.info("No hay clientes registrados")
 
@@ -1100,6 +1311,29 @@ def eliminar_corregir_datos():
 
                 st.info(f"**Movimiento seleccionado:** {id_mov_editar} | Llanta: {movimiento.get('id_llanta', 'N/A')} | Tipo: {movimiento.get('tipo', 'N/A')} | Placa: {movimiento.get('placa_vehiculo', 'N/A')} | Fecha: {movimiento.get('fecha', 'N/A')}")
 
+                # Fila de campos nuevos: ID movimiento, OT, Planilla, Fecha
+                col_id1, col_id2, col_id3, col_id4 = st.columns(4)
+                with col_id1:
+                    nuevo_id_mov = st.text_input("ID Movimiento", value=id_mov_editar, key=f"edit_id_movimiento_{id_mov_editar}")
+                with col_id2:
+                    ot_mov = movimiento.get('orden_trabajo', '') if pd.notna(movimiento.get('orden_trabajo')) else ''
+                    nueva_ot_mov = st.text_input("Orden de Trabajo (OT)", value=ot_mov, key=f"edit_ot_mov_{id_mov_editar}")
+                with col_id3:
+                    planilla_mov = movimiento.get('planilla', '') if pd.notna(movimiento.get('planilla')) else ''
+                    nueva_planilla_mov = st.text_input("Planilla", value=planilla_mov, key=f"edit_planilla_mov_{id_mov_editar}")
+                with col_id4:
+                    fecha_mov_raw = movimiento.get('fecha', '')
+                    try:
+                        fecha_mov_parsed = datetime.strptime(str(fecha_mov_raw)[:10], "%Y-%m-%d").date() if fecha_mov_raw and str(fecha_mov_raw) != 'nan' else datetime.now().date()
+                    except:
+                        try:
+                            fecha_mov_parsed = datetime.strptime(str(fecha_mov_raw)[:10], "%d/%m/%Y").date()
+                        except:
+                            fecha_mov_parsed = datetime.now().date()
+                    nueva_fecha_mov = st.date_input("Fecha", value=fecha_mov_parsed, key=f"edit_fecha_mov_{id_mov_editar}")
+
+                st.warning("⚠️ Al editar un movimiento, se buscará y actualizará automáticamente el servicio correspondiente (misma llanta, mismo tipo, misma OT).")
+
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
@@ -1111,8 +1345,7 @@ def eliminar_corregir_datos():
 
                     # Vida
                     vida_mov = int(movimiento.get('vida', 1)) if pd.notna(movimiento.get('vida')) else 1
-                    vida_mov = max(1, vida_mov)  # Asegurar que sea al menos 1
-                    # Limpiar session_state si tiene valor inválido
+                    vida_mov = max(1, vida_mov)
                     vida_key = f"edit_vida_mov_{id_mov_editar}"
                     if vida_key in st.session_state and st.session_state[vida_key] < 1:
                         del st.session_state[vida_key]
@@ -1161,18 +1394,75 @@ def eliminar_corregir_datos():
                 with col_btn1:
                     if st.button("💾 Guardar Cambios", key="guardar_movimiento", type="primary"):
                         df_mov_todos = leer_hoja(SHEET_MOVIMIENTOS)
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'tipo'] = nuevo_tipo
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'vida'] = nueva_vida
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'placa_vehiculo'] = nueva_placa
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'posicion'] = nueva_posicion
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'kilometraje'] = nuevo_km
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'nueva_disponibilidad'] = nueva_disp
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'marca_reencauche'] = nueva_marca_reenc
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'ref_reencauche'] = nueva_ref_reenc
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'precio_reencauche'] = nuevo_precio_reenc
-                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'observaciones'] = nuevas_obs
+
+                        # Campos nuevos: ID, OT, Planilla, Fecha
+                        if nuevo_id_mov != id_mov_editar and nuevo_id_mov.strip():
+                            df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_editar, 'id_movimiento'] = nuevo_id_mov
+                        id_mov_actual = nuevo_id_mov if nuevo_id_mov.strip() and nuevo_id_mov != id_mov_editar else id_mov_editar
+
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'orden_trabajo'] = nueva_ot_mov
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'planilla'] = nueva_planilla_mov
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'fecha'] = nueva_fecha_mov.strftime("%Y-%m-%d %H:%M:%S")
+
+                        # Campos existentes
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'tipo'] = nuevo_tipo
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'vida'] = nueva_vida
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'placa_vehiculo'] = nueva_placa
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'posicion'] = nueva_posicion
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'kilometraje'] = nuevo_km
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'nueva_disponibilidad'] = nueva_disp
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'marca_reencauche'] = nueva_marca_reenc
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'ref_reencauche'] = nueva_ref_reenc
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'precio_reencauche'] = nuevo_precio_reenc
+                        df_mov_todos.loc[df_mov_todos['id_movimiento'] == id_mov_actual, 'observaciones'] = nuevas_obs
                         escribir_hoja(SHEET_MOVIMIENTOS, df_mov_todos)
-                        st.success("✅ Movimiento actualizado con éxito")
+
+                        # === SYNC: Buscar y actualizar servicio correspondiente ===
+                        servicio_sync_msg = ""
+                        try:
+                            df_srv_sync = leer_hoja(SHEET_SERVICIOS)
+                            if not df_srv_sync.empty:
+                                id_llanta_mov = movimiento.get('id_llanta', '')
+                                tipo_original = movimiento.get('tipo', '')
+                                ot_original = movimiento.get('orden_trabajo', '')
+                                fecha_original = str(movimiento.get('fecha', ''))[:10]
+
+                                # Buscar servicio vinculado: misma llanta + mismo tipo_servicio + misma OT
+                                mascara = (df_srv_sync['id_llanta'] == id_llanta_mov)
+                                if tipo_original in ['montaje', 'desmontaje', 'rotacion']:
+                                    mascara = mascara & (df_srv_sync['tipo_servicio'] == tipo_original)
+                                if ot_original and str(ot_original) != 'nan':
+                                    mascara = mascara & (df_srv_sync['orden_trabajo'] == ot_original)
+                                # Filtrar por fecha (mismo día)
+                                if fecha_original and fecha_original != 'nan':
+                                    def _misma_fecha(f_srv, f_mov):
+                                        try:
+                                            s = datetime.strptime(str(f_srv), "%d/%m/%Y").strftime("%Y-%m-%d")
+                                            return s == f_mov
+                                        except:
+                                            return str(f_srv)[:10] == f_mov
+                                    mascara = mascara & df_srv_sync['fecha'].apply(lambda f: _misma_fecha(f, fecha_original))
+
+                                servicios_vinculados = df_srv_sync[mascara]
+
+                                if not servicios_vinculados.empty:
+                                    idx_srv = servicios_vinculados.index[0]
+                                    # Actualizar campos compartidos
+                                    df_srv_sync.at[idx_srv, 'orden_trabajo'] = nueva_ot_mov
+                                    df_srv_sync.at[idx_srv, 'planilla'] = nueva_planilla_mov
+                                    df_srv_sync.at[idx_srv, 'fecha'] = nueva_fecha_mov.strftime("%d/%m/%Y")
+                                    df_srv_sync.at[idx_srv, 'placa_vehiculo'] = nueva_placa
+                                    df_srv_sync.at[idx_srv, 'posicion'] = nueva_posicion
+                                    df_srv_sync.at[idx_srv, 'kilometraje'] = nuevo_km
+                                    escribir_hoja(SHEET_SERVICIOS, df_srv_sync)
+                                    id_srv_vinc = df_srv_sync.at[idx_srv, 'id_servicio']
+                                    servicio_sync_msg = f" | Servicio vinculado actualizado: {id_srv_vinc}"
+                                else:
+                                    servicio_sync_msg = " | No se encontró servicio vinculado para sincronizar"
+                        except Exception as e_sync:
+                            servicio_sync_msg = f" | Error sincronizando servicio: {str(e_sync)}"
+
+                        st.success(f"✅ Movimiento actualizado con éxito{servicio_sync_msg}")
                         st.rerun()
 
                 with col_btn2:
@@ -1185,7 +1475,7 @@ def eliminar_corregir_datos():
 
                 # Mostrar información de referencia
                 st.divider()
-                st.caption(f"ID Llanta: {movimiento.get('id_llanta', 'N/A')} | Fecha: {movimiento.get('fecha', 'N/A')} | Usuario: {movimiento.get('usuario', 'N/A')}")
+                st.caption(f"ID Llanta: {movimiento.get('id_llanta', 'N/A')} | Fecha: {movimiento.get('fecha', 'N/A')} | Usuario: {movimiento.get('usuario', 'N/A')} | OT: {movimiento.get('orden_trabajo', 'N/A')} | Planilla: {movimiento.get('planilla', 'N/A')}")
             else:
                 st.info("No tienes movimientos accesibles")
         else:
