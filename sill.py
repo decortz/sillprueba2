@@ -2069,30 +2069,39 @@ def registrar_servicios(embedded=False):
             key="srv_id_llanta"
         )
 
-        # 5.1 - Buscar último servicio de la llanta para mostrar profundidades y km
-        if not df_servicios_hist.empty and 'id_llanta' in df_servicios_hist.columns:
-            servicios_llanta = df_servicios_hist[df_servicios_hist['id_llanta'] == id_llanta]
-            if not servicios_llanta.empty:
-                ultimo_servicio = servicios_llanta.iloc[-1]
-                ult_km = ultimo_servicio.get('kilometraje', 'N/A')
-                ult_p1 = ultimo_servicio.get('profundidad_1', 'N/A')
-                ult_p2 = ultimo_servicio.get('profundidad_2', 'N/A')
-                ult_p3 = ultimo_servicio.get('profundidad_3', 'N/A')
-                st.caption(f"📊 Último km: **{ult_km}** | Prof: Int:**{ult_p1}**mm | Cen:**{ult_p2}**mm | Ext:**{ult_p3}**mm")
-            else:
-                st.caption("📊 Sin servicios previos registrados")
-        else:
-            st.caption("📊 Sin servicios previos registrados")
-
         fecha_servicio = st.date_input("Fecha del Servicio", datetime.now(), key="srv_fecha")
         kilometraje = st.number_input("Kilometraje", min_value=0, value=0, key="srv_km")
 
-    # Mostrar info de la llanta seleccionada
+    # Mostrar info completa de la llanta seleccionada en recuadro azul
     llanta_sel = llantas_en_piso[llantas_en_piso['id_llanta'] == id_llanta].iloc[0]
     posicion_actual = llanta_sel.get('posicion_actual', llanta_sel.get('pos_final', ''))
     vida_actual = int(llanta_sel.get('vida_actual', llanta_sel.get('vida', 1))) if pd.notna(llanta_sel.get('vida_actual', llanta_sel.get('vida', 1))) else 1
+    marca_ll = llanta_sel.get('marca_llanta', 'N/A')
+    ref_ll = llanta_sel.get('referencia', 'N/A')
+    dim_ll = llanta_sel.get('dimension', 'N/A')
+    disp_ll = llanta_sel.get('disponibilidad', 'N/A')
 
-    st.info(f"📍 Posición actual: **{posicion_actual}** | 🔄 Vida: **{vida_actual}**")
+    # Buscar último servicio para profundidades y km
+    info_ultimo = ""
+    if not df_servicios_hist.empty and 'id_llanta' in df_servicios_hist.columns:
+        servicios_llanta = df_servicios_hist[df_servicios_hist['id_llanta'] == id_llanta]
+        if not servicios_llanta.empty:
+            ultimo_servicio = servicios_llanta.iloc[-1]
+            ult_km = ultimo_servicio.get('kilometraje', 'N/A')
+            ult_p1 = ultimo_servicio.get('profundidad_1', 'N/A')
+            ult_p2 = ultimo_servicio.get('profundidad_2', 'N/A')
+            ult_p3 = ultimo_servicio.get('profundidad_3', 'N/A')
+            info_ultimo = f"  \nÚltimo servicio → Km: **{ult_km}** | Prof: Int:**{ult_p1}**mm · Cen:**{ult_p2}**mm · Ext:**{ult_p3}**mm"
+        else:
+            info_ultimo = "  \nSin servicios previos registrados"
+    else:
+        info_ultimo = "  \nSin servicios previos registrados"
+
+    st.info(
+        f"**Llanta:** {id_llanta} | **Marca:** {marca_ll} | **Ref:** {ref_ll} | **Dimensión:** {dim_ll}  \n"
+        f"**Posición:** {posicion_actual} | **Vida:** {vida_actual} | **Disponibilidad:** {disp_ll}"
+        f"{info_ultimo}"
+    )
 
     with col2:
         st.write("**Profundidades (mm)**")
