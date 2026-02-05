@@ -629,12 +629,21 @@ def _max_consecutivo_por_prefijo(df, col_id, prefijo_completo):
             if pd.notna(id_val):
                 id_str = str(id_val).strip()
                 if id_str.startswith(prefijo_completo):
-                    try:
-                        num = int(id_str[len(prefijo_completo):])
-                        if num > max_num:
-                            max_num = num
-                    except (ValueError, IndexError):
-                        pass
+                    resto = id_str[len(prefijo_completo):]
+                    # Extraer solo los dígitos iniciales (antes de _ o texto opcional)
+                    num_str = ''
+                    for c in resto:
+                        if c.isdigit():
+                            num_str += c
+                        else:
+                            break
+                    if num_str:
+                        try:
+                            num = int(num_str)
+                            if num > max_num:
+                                max_num = num
+                        except ValueError:
+                            pass
     return max_num
 
 def generar_id_unico(nit_cliente, frente=None, id_usuario=None, tipo='vehiculo'):
