@@ -989,11 +989,6 @@ def eliminar_corregir_datos():
 
             with col3:
                 st.write("**Servicios Realizados**")
-                edit_rotacion = st.checkbox("Rotación", value=(servicio.get('rotacion', 'No') == 'Sí'), key=f"edit_rotacion_{id_servicio_editar}")
-                if edit_rotacion:
-                    edit_pos_nueva = st.text_input("Nueva Posición", value=servicio.get('posicion_nueva', ''), key=f"edit_pos_nueva_{id_servicio_editar}")
-                else:
-                    edit_pos_nueva = ""
                 edit_balanceo = st.checkbox("Balanceo", value=(servicio.get('balanceo', 'No') == 'Sí'), key=f"edit_balanceo_{id_servicio_editar}")
                 edit_reparacion = st.checkbox("Reparación", value=(servicio.get('reparacion', 'No') == 'Sí'), key=f"edit_reparacion_{id_servicio_editar}")
                 edit_despinche = st.checkbox("Despinche", value=(servicio.get('despinche', 'No') == 'Sí'), key=f"edit_despinche_{id_servicio_editar}")
@@ -1008,33 +1003,28 @@ def eliminar_corregir_datos():
 
             with col_btn1:
                 if st.button("💾 Guardar Cambios", key="guardar_servicio", type="primary"):
-                    if edit_rotacion and not edit_pos_nueva:
-                        st.error("Si hay rotación, debes especificar la nueva posición")
-                    else:
-                        # Actualizar los campos editables
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'fecha'] = nueva_fecha.strftime("%d/%m/%Y")
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'kilometraje'] = nuevo_km
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_1'] = nueva_prof1
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_2'] = nueva_prof2
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_3'] = nueva_prof3
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'rotacion'] = 'Sí' if edit_rotacion else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'posicion_nueva'] = edit_pos_nueva if edit_rotacion else ''
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'balanceo'] = 'Sí' if edit_balanceo else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'reparacion'] = 'Sí' if edit_reparacion else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'despinche'] = 'Sí' if edit_despinche else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'regrabacion'] = 'Sí' if edit_regrabacion else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'torqueo'] = 'Sí' if edit_torqueo else 'No'
-                        df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'comentario_fvu'] = nuevo_comentario
+                    # Actualizar los campos editables
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'fecha'] = nueva_fecha.strftime("%d/%m/%Y")
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'kilometraje'] = nuevo_km
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_1'] = nueva_prof1
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_2'] = nueva_prof2
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'profundidad_3'] = nueva_prof3
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'balanceo'] = 'Sí' if edit_balanceo else 'No'
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'reparacion'] = 'Sí' if edit_reparacion else 'No'
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'despinche'] = 'Sí' if edit_despinche else 'No'
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'regrabacion'] = 'Sí' if edit_regrabacion else 'No'
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'torqueo'] = 'Sí' if edit_torqueo else 'No'
+                    df_servicios.loc[df_servicios['id_servicio'] == id_servicio_editar, 'comentario_fvu'] = nuevo_comentario
 
-                        escribir_hoja(SHEET_SERVICIOS, df_servicios)
+                    escribir_hoja(SHEET_SERVICIOS, df_servicios)
 
-                        # Recalcular costos si cambió el kilometraje
-                        id_llanta_servicio = servicio.get('id_llanta')
-                        if id_llanta_servicio:
-                            actualizar_costos_km_llanta(id_llanta_servicio)
+                    # Recalcular costos si cambió el kilometraje
+                    id_llanta_servicio = servicio.get('id_llanta')
+                    if id_llanta_servicio:
+                        actualizar_costos_km_llanta(id_llanta_servicio)
 
-                        st.success("✅ Servicio actualizado con éxito")
-                        st.rerun()
+                    st.success("✅ Servicio actualizado con éxito")
+                    st.rerun()
 
             with col_btn2:
                 if st.button("🗑️ Eliminar Servicio", key="eliminar_servicio"):
@@ -2190,13 +2180,9 @@ def registrar_servicios(embedded=False):
         f"{info_ultimo}"
     )
 
-    posicion_input = st.text_input(
-        "📍 Posición de la llanta (obligatorio)",
-        value=pos_prefill,
-        key="srv_posicion",
-        placeholder="Ej: DI, DD, TI1",
-        help="Confirma o corrige la posición actual. Se actualizará en la ficha de la llanta."
-    )
+    # La posición no se edita aquí: los cambios de posición se hacen en "Rotación completa"
+    if not pos_prefill:
+        st.warning("⚠️ Esta llanta no tiene posición asignada. Asígnala en la pestaña **🔄 Rotación Completa** antes de registrar el servicio.")
 
     with col2:
         st.write("**Profundidades (mm)**")
@@ -2231,8 +2217,8 @@ def registrar_servicios(embedded=False):
         operario = st.text_input("👷 Operario", placeholder="No hay operarios asignados a este cliente", key="srv_operario_txt")
 
     if st.button("💾 Registrar Servicio", type="primary", key="srv_btn_registrar"):
-        if not posicion_input or not posicion_input.strip():
-            st.error("⚠️ Debes ingresar la posición de la llanta para registrar el servicio")
+        if not pos_prefill:
+            st.error("⚠️ La llanta no tiene posición asignada. Asígnala en la pestaña Rotación Completa antes de registrar el servicio")
             st.stop()
 
         df_servicios = leer_hoja(SHEET_SERVICIOS)
@@ -2247,7 +2233,7 @@ def registrar_servicios(embedded=False):
         llanta_data = llanta_data.iloc[0]
         placa = llanta_data.get('placa_actual', llanta_data.get('placa_vehiculo', ''))
         nit_cliente = llanta_data['nit_cliente']
-        posicion = posicion_input.strip()
+        posicion = pos_prefill
         vida = llanta_data.get('vida_actual', llanta_data.get('vida', 1))
         disponibilidad = llanta_data.get('disponibilidad', '')
 
@@ -2306,17 +2292,16 @@ def registrar_servicios(embedded=False):
         df_servicios = pd.concat([df_servicios, nuevo_servicio], ignore_index=True)
         escribir_hoja(SHEET_SERVICIOS, df_servicios)
 
-        # Actualizar posición en llantas (siempre) y regrabaciones si aplica
-        df_llantas_update = leer_hoja_fresco(SHEET_LLANTAS)
-        df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'posicion_actual'] = posicion
-        df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Actualizar regrabaciones si aplica (la posición no se modifica desde servicios)
         regrabaciones_nuevo = None
         if regrabacion:
+            df_llantas_update = leer_hoja_fresco(SHEET_LLANTAS)
+            df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'fecha_modificacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             regrabaciones_actual = df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'].values
             regrabaciones_actual = int(regrabaciones_actual[0]) if len(regrabaciones_actual) > 0 and pd.notna(regrabaciones_actual[0]) else 0
             regrabaciones_nuevo = regrabaciones_actual + 1
             df_llantas_update.loc[df_llantas_update['id_llanta'] == id_llanta, 'total_regrabaciones'] = regrabaciones_nuevo
-        escribir_hoja(SHEET_LLANTAS, df_llantas_update)
+            escribir_hoja(SHEET_LLANTAS, df_llantas_update)
 
         # ACTUALIZAR COSTOS/KM AUTOMÁTICAMENTE
         actualizar_costos_km_llanta(id_llanta)
